@@ -442,10 +442,13 @@ def test_training_sessions_still_ignore_the_scenario_script_without_a_scripted_d
 ```python
 # tests/test_factory_handlers.py(沿用 :646 那组部署会话测试的夹具)
 def test_a_registered_deployment_session_uses_the_bound_opponent_factory(store, tmp_path):
+    # 沿用 :641 起的夹具:_slot_info(scenario, assignment, episode_id=...)、_two_slots()、_says(backend, slot, n)
+    runtime, deploy = _deploy_runtime(store, tmp_path)
     runtime.register_deployment_episode("deploy-m-s1-1", "agent-round-m")
     with runtime.bind_deployment_opponents(lambda b, s: _Echo("model says")):
-        res = runtime._backends(_info("deploy-m-s1-1"))
-    assert _speak(res, "user") == "model says"
+        res = runtime._backends(_slot_info(_scenario_with(), _two_slots(), episode_id="deploy-m-s1-1"))
+    assert _says(res.backends["b"], "b", 2) == ["model says", "model says"]
+    res.close()
 
 def test_the_model_switch_overrides_the_script_but_not_an_explicit_scripted_driver(...): ...
     # 情境带剧本 {"b": ["一"]}:未写 driver 的 b 由模型说话;同一情境里写了 driver: scripted 的 c 念剧本
