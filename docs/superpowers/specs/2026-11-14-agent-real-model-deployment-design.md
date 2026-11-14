@@ -35,10 +35,10 @@
 5. 部署驱动器里,智能体位的 `instance.respond` 抛的除 `MemoryFailureError` 以外的异常不被任何 `except` 接住,穿过 `finally`(先 abort 会话)原样上抛(`src/mindagent/deployment.py:316-318`)。对手位的后端在服务端里,服务端把单次调用超时、不可用、拒绝分别归成 `role_backend_timeout`、`role_backend_unavailable`、`role_backend_rejected` 终止原因。驱动器按 `TRANSIENT_REASONS`(含前两个)决定重跑(`src/mindagent/deployment.py:44`)。
 6. `AgentRuntime._backends` 只在会话登记给训练 run、且装了 `opponent_backend_factory` 时才判驱动、调工厂;部署会话(没登记给训练 run)一律给全局台词的 `ScriptedBackend`,显式 `driver: scripted` 的绑定除外(`src/factory/agent.py:277-283`、`:327`、`:354`)。部署会话的对手位记忆已经走部署世界(`deploy.open(scenario.id, binding.persona_id)`)。
 7. 时间预算分两条路。接 Starling 时部署会话用推出的 `deploy_turn_s`(服务端等一次提交)、`max_turns × deploy_per_turn_s`(流 deadline)、`backend_s`(对手后端调用)、`join_s`、`close_wait_s`、`admission_wait_s`(`src/factory/wire.py:204`、`src/factory/handlers.py:114`)。替身时这些都不传:服务端等提交是 `AgentRuntime` 缺省 5 秒,流 deadline 是 `INTERACT_DEADLINE_S` 15 秒,对手后端调用是服务端缺省 60 秒(`src/factory/wire.py:205`、`:219`)。`deploy_turn_s` 的说明写着"部署的智能体位后端是罐头",只包一轮记忆,没留模型推理的时间。场景二实测真模型每轮 20 到 65 秒(总览风险表第 21 项)。
-10. 轮次的触发与重入:调和循环只在最新 effective 模型没有轮次产物、或产物仍是 `pending` 时发 `start_agent_round`(`src/controlplane/reconcile.py:202`);处理器遇到 `executed`、`failed` 直接返回(`src/mindagent/rounds.py:333`)。`pending` 轮次重入时,episode 级复用只比技能库版本(`src/mindagent/deployment.py:145-154`),已提交的 episode 不能用同一 id 重跑(50 篇 MA-25)。代码里没有按后端判断"是不是同一轮"的地方。
-11. 失败的现行去向:部署段瞬态重跑用尽时 `DeploymentFailedError` 原样上抛,轮次留 `pending`(`src/mindagent/rounds.py:450-452`,50 篇失败表);验证段里瞬态的 `MemoryFailureError` 改抛 `DeferredError`,轮次留 `pending`。处理器抛出 `DeferredError` 以外的异常时,守护进程带着回溯退出(`src/controlplane/daemon.py:363`)。
 8. 装配开关:`--endpoint` 只在 `--executor roll` 或 `--interact` 时有意义,其余组合装配期拒绝(`src/factory/wire.py:454`)。`--interact` 与 `--executor roll` 互斥(`:448`)。
 9. 信号是关键词匹配:`emotion_high` 看对方最后一句是否含词典里的词(中文"生气、愤怒、失望……",英文只有 angry、furious、upset、hate、scared)或两个以上感叹号(`src/simple_actio/signals.py:20-44`)。默认部署情境与人格是英文写的(`factory-deploy-s1` 的 background 是"a customer escalates a complaint")。
+10. 轮次的触发与重入:调和循环只在最新 effective 模型没有轮次产物、或产物仍是 `pending` 时发 `start_agent_round`(`src/controlplane/reconcile.py:202`);处理器遇到 `executed`、`failed` 直接返回(`src/mindagent/rounds.py:333`)。`pending` 轮次重入时,episode 级复用只比技能库版本(`src/mindagent/deployment.py:145-154`),已提交的 episode 不能用同一 id 重跑(50 篇 MA-25)。代码里没有按后端判断"是不是同一轮"的地方。
+11. 失败的现行去向:部署段瞬态重跑用尽时 `DeploymentFailedError` 原样上抛,轮次留 `pending`(`src/mindagent/rounds.py:450-452`,50 篇失败表);验证段里瞬态的 `MemoryFailureError` 改抛 `DeferredError`,轮次留 `pending`。处理器抛出 `DeferredError` 以外的异常时,守护进程带着回溯退出(`src/controlplane/daemon.py:363`)。
 
 ## 3. 裁决总表
 
@@ -48,7 +48,7 @@
 | D2 | 服务只挂基座,不挂适配器 | 挂被晋级模型的导出 | 用户定的(第 1 节第 3 条)。`checkpoint_ref` 照旧写进轮次产物,这一版不据它选权重 |
 | D3 | 由新开关 `--agent-backend vllm` 打开,配 `--endpoint`;缺省 `canned` | 只要 `--endpoint` 就自动切;写进 `agent.yaml` | 与 `--executor`、`--evaluator` 同一种写法;缺省不变,现有闭环与测试逐字节不变 |
 | D4 | 部署会话的对手位:开关打开时由同一个服务上的基座说话,不再念固定台词;显式 `driver: scripted` 的绑定仍念台词 | 部署对手照旧念台词;对手走外部 API | 用户定的(第 1 节第 1 条)。保留 `scripted` 的逃生口,不必改情境就能单独排查智能体位 |
-| D5 | 部署时限另立一组,替身与 Starling 两条路都按真模型放宽 | 沿用 `deploy_turn_s` 40 秒 | 40 秒只包一轮记忆;真模型每轮最慢 65 秒,沿用必然在服务端等提交时超时 |
+| D5 | 部署时限另立一组,只走 Starling 一路(替身加 `vllm` 由 D9 挡掉)。服务端等提交这一层要接进运行时的构造,起服务时带轮次身份 | 沿用 `deploy_turn_s`;只放宽流 deadline | 40 秒只包一轮记忆;真模型每轮最慢 65 秒,沿用必然在服务端等提交时超时。等提交在 `AgentRuntime` 构造时定死,轮次处理器改不动它 |
 | D6 | 租约被占、服务起不来按延后:轮次留 `pending`,守护进程退避后重入 | 判 T3 | 与场景二同一判法;GPU 被别人临时占着不是轮次本身的错 |
 | D7 | 智能体位的 vLLM 调用失败在部署段归进驱动器的尝试分类、在验证段按记忆失败的同一规则处理;用尽与延后沿用现行去向(4.5 节) | 让异常穿出;用尽后另判 T3 | 今天 `instance.respond` 的异常原样上抛(事实 5),罐头后端从不失败所以没出过事;沿用现行去向不必改 50 篇的失败表 |
 | D8 | 不改信号与情境 | 把情境人格改成中文、扩英文词典 | 用户定的(第 1 节第 4 条)。先看真模型实际说什么,再决定调信号还是调情境 |
@@ -88,7 +88,7 @@
 | 开关为 `vllm`,且本轮的部署服务上下文在 | 同一服务上的基座,按人格与情境发言 |
 | 其余 | 全局台词,与今天一样 |
 
-部署服务上下文不在时(比如 `--agent-backend canned`),部署会话的行为与今天逐字节相同。训练会话的判定不变。
+部署服务上下文不在时(比如 `--agent-backend canned`),部署会话的行为与今天逐字节相同。训练会话的判定不变。第二行忽略绑定的 `model_backend` 与 `model_ref`:写了 `frozen_reference`、`model_ref: zengen-v1` 的对手位也由基座说话(D2,这一版只挂基座)。
 
 ### 4.4 时限
 
@@ -113,17 +113,17 @@
 |---|---|---|
 | 超时、暂时不可用(`OpponentTimeoutError`、`OpponentUnavailableError`) | 本条的一次失败尝试,终止原因 `role_backend_timeout` 或 `role_backend_unavailable`,回滚世界后重跑;用尽时照现行去向,`DeploymentFailedError` 上抛、轮次留 `pending`(事实 11) | 改抛 `DeferredError`,轮次留 `pending`,与验证段的瞬态记忆失败同一规则 |
 | 被拒(`OpponentRejectedError`) | 本条失败,终止原因 `role_backend_rejected`,不重跑,轮次 T3 | 轮次 T3 |
-| 回复形状不对或为空(其余 `OpponentApiError`) | 本条失败,终止原因 `role_backend_failure`,不重跑,轮次 T3 | 轮次 T3 |
+| 回复形状不对或为空(其余 `OpponentApiError`) | 本条失败,终止原因 `role_backend_failure`,回滚重跑一次,用尽后才 T3 | 轮次 T3 |
 
 其余失败:
 
 | 失败 | 去向 |
 |---|---|
 | 租约被占、服务起不来、隧道开不了 | 延后(`DeferredError`),轮次留 `pending`(D6) |
-| 服务不给 `BASE_MODEL_NAME`(构造 `VllmPolicy` 时的 `ComputeError`) | 轮次 T3,原因写服务实际给的模型名 |
+| 服务配置不可用(确定性 `ComputeError`:`serve` 的内存或卡数检查、`VllmServeConfig` 校验失败) | 轮次 T3,原因只写异常类名 |
 | 对手位调用失败 | 服务端照旧归成 `role_backend_*` 终止原因,驱动器照旧分类 |
-| `pending` 轮次记下的部署后端与本次不同 | 轮次 T3,原因 `deployment backend changed`,不复用、不重跑(D10) |
-| 停服务时作业还在跑 | 照 `serve` 的现行规则:不放租约,抛 `ServeStopError`;租约在作业退出后被助手判为陈旧 |
+| `pending` 轮次记下的部署后端与本次不同,且已有提交过的 episode | 轮次 T3,原因 `deployment backend changed`,不复用、不重跑;一条都没提交过时按本次后端重写载荷(D10) |
+| 停服务时作业还在跑 | 不放租约,抛 `ServeStopError`,轮次 T3 并点名作业 id,要人去停(与 `--interact` 同一判法);有在途异常时它优先,`ServeStopError` 只补类名与作业 id。服务不会自己退出,租约不会自己松开 |
 
 轮次 T3 都经处理器现有的 `record` 写进轮次产物与失败记录,走与其它 T3 相同的回滚。
 
@@ -167,3 +167,19 @@ deployment_backend:
 - 部署服务上下文挂在哪一层:轮次处理器内部,还是组合根包一层传进去。前者能精确控制"只在真跑部署时起",后者不让 `mindagent` 导入 `compute`;分层规则以 `docs/design/` 为准。
 - 远端端口取值,不与 `--interact` 的 `DEFAULT_SERVE_PORT` 冲突即可。
 - 时限各层的具体数值,满足 4.4 节的包含关系即可。
+
+## 9. 并入时定下的细节
+
+- 部署服务上下文由 factory 组合根造,经 `make_start_round_handler` 的可选参数注入;`mindagent` 不导入 `compute`。
+- 智能体位后端外面由组合根套一层转换,把 `factory.opponents` 的四种异常换成 `simple_actio` 里新增的四种后端失败异常,`mindagent` 只认后者,依赖表不放宽。做法同 `MemoryTranslatingBackend`。
+- 退出上下文时停服务失败(`ServeStopError`):有在途异常时那个优先,`ServeStopError` 的类名与作业 id 补进原因;轮次 T3 并点名作业 id。
+- `deployment_backend` 在重写 `pending` 载荷之前比较,比整份字典,且只在 `episode_digests` 非空时比较。
+- 部署服务的作业身份带轮次 id:同一端点同一配置每跑一轮都永久占掉一个 `serve-*` 尝试序号(上限 8),不带轮次身份第 9 轮起无限延后。
+- 部署真模型要另配一个新的记忆根:部署世界按情境 id 跨轮次累积,同一根上罐头轮次写进去的拼接话语会被真模型第一轮召回。
+- 验证重放的指标只看路由(`decide` 在调后端之前算),重新生成的话语不进判据;真模型下验证段花的调用不改变度量。
+- `agent_rsi` 配方的可选锚定字段加 `deployment_backend`。
+- 部署对手位单次 HTTP 的取值(现按 `opponent_s`)在真机上没量过,列入未核实项。
+- 上下文在写 `pending` 之后、输入检查通过之后进入;已终态、被取代、模型不合法、读库失败、拿不到世界锁、输入缺失都不起服务。
+- 远端端口不等于 `DEFAULT_SERVE_PORT`(18081)。
+- 时限:服务端等智能体位提交与训练位等提交同一推法(下限 150 秒加 10 秒余量),部署流每轮不低于它与后端调用中较大的一层。
+
