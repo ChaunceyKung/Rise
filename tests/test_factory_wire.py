@@ -519,8 +519,10 @@ def test_roll_defers_the_deployment_to_the_first_dispatch(real_repo, tmp_path, m
                                  "roll_root": "/srv/rise/work/deps/roll-8b94504ef476"})
     runtime = RollRuntime(derived, RollEnv(roll_commit="8b94504ef476373a05ce6b7196134b2d78cb0c42",
                                            roll_tree="0" * 64), "forge-roll-x")
-    # 绑定先于预检:预检走的是绑上去的客户端,所以它只要有 preflight 就够(不连 ssh)
-    bound_client = type("BoundClient", (), {"preflight": lambda self: None})()
+    # 绑定先于预检:预检走的是绑上去的客户端(不连 ssh)。预检先查租约持有者,认不出本 run 的作业就照常判忙,
+    # 所以替身给一个空租约
+    bound_client = type("BoundClient", (), {"preflight": lambda self, own_holder=None: None,
+                                            "lease_holder": lambda self: (None, False)})()
     monkeypatch.setattr(wire, "_roll_runtime_cache", lambda *a: FakeCache((runtime, bound_client)))
     asm = assemble(real_repo, FactoryOptions(executor="roll"), env=env)
     executor = asm.executor_factory("run-2")
