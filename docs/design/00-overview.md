@@ -828,7 +828,7 @@ V2 要做多租户、配方跨工厂流通、数据结构升级。这些无法�
 
 - 训练执行器与 checkpoint 转换器,checkpoint 是哈希链,损失值是合成函数,不是学习证据。
 - 缺省入口与 `scripts/run_controlplane.py` 的 `request_diagnostic` 仍写占位桩报告。闭环模式经 `factory run --enable` 注入评估器:注入 mock 时报告标 `mock`,只有 `--evaluator someval` 才可能产出 `real`。
-- 闭环里的智能体轮次缺省用罐头后端 `CannedGuidedBackend`,不加载 checkpoint,轮次产物也不记后端来源。真模型部署后端 [已落地]:`--agent-backend vllm` 让两个角色位都由远端 vLLM 上的基座说话;171 上一次还没跑。
+- 闭环里的智能体轮次缺省用罐头后端 `CannedGuidedBackend`,不加载 checkpoint,轮次产物也不记后端来源。真模型部署后端 [已落地]:`--agent-backend vllm` 让两个角色位都由远端 vLLM 上的基座说话;2026-11-15 在 171 上跑通一轮。
 
 ## 9. 路线图
 
@@ -853,7 +853,7 @@ V2 要做多租户、配方跨工厂流通、数据结构升级。这些无法�
 | 真实 GRPO 加 OPD、真实 judge | [推迟],仍用确定性 mock | 报告等级恒为 `mock` 或更低,策略经验不会聚合出任何条目(它只收 `real`),提名增益也缺真实判据 |
 | 崩溃后接上仍在跑的远端作业 | [已落地] 单段、两段与跨进程续训都已在真机上跑通(2026-11-14)。重启的进程认出租约属于本 run 的作业(`RollExecutor._own_lease_holder`:租约持有者的 `spec.json` 里 `--output-dir` 落在 `<work_root>/runs/<run_id>/` 下就把作业名交给 `preflight(own_holder=...)`),当场接上仍在跑的那次;认不出别的 run 的、陈旧的、读不到 spec 的一律不认,照常判忙 | 认领只读,不改远端状态;判据是输出目录前缀,换了作业命名规则要同步改这里 |
 | SoMEval 判分在真机上跑通 | 只验证到预测阶段 | `real` 等级尚未产生过 |
-| 场景三真模型部署 | [已落地],`--agent-backend vllm`,两个角色位由远端 vLLM 上的基座说话;171 真机待跑 | 缺省仍是罐头后端;部署 episode 只证明路由与轨迹,不代表模型行为 |
+| 场景三真模型部署 | [已落地],`--agent-backend vllm`,两个角色位由远端 vLLM 上的基座说话;2026-11-15 在 171 上跑通一轮,零发现、零提案 | 缺省仍是罐头后端;部署结果反映的是基座,不是被晋级模型的权重 |
 | vLLM 端到端 | 组件已落地,真机待补 | 真实推理服务未经真机验证 |
 | interact 在真实入口接通 | [已落地],端到端测试用本机 HTTP 替身代替 vLLM,真机未跑 | 真模型进实时会话,对手位有固定对话、远端 vLLM 上的对手模型、外部 API 三种驱动;训练仍是 mock,证明会话与落盘,不证明学习效果 |
 
@@ -943,7 +943,7 @@ V2 要做多租户、配方跨工厂流通、数据结构升级。这些无法�
 | 35 | [计划中] 关掉来源 lane 后,服务的召回与摘要是否逐项等于进程内时期的 Starling | 不等就改了记忆语义,违反只换后端的前提 | 用同一份世界设置在服务与进程内各跑一遍,比较 |
 | 36 | [计划中] 看板正在看某个 rollout 世界时,`close_world` 会不会阻塞到 30 秒;本机睡眠唤醒后服务会话是否过期 | 前者拖慢 rollout 收尾;后者让唤醒后的第一批调用判瞬态并重连 | 看板打开一个世界页面同时调 `close_world` 计时;开一个会话,合盖 5 分钟后调用一次 |
 | 37 | [已落地] 管理调用的 300 秒超时依赖 `starling_client` 的私有模块 `_transport`。2026-11-10 在 `cff319d` 上核实:`Transport` 也由 `starling_client.__all__` 导出;构造是 `(url, token, timeout_s=30.0, *, _httpx_transport=None)`,`post` 是 `(path, json=None, *, timeout_s=None) -> dict`,与管理传输的设计一致;用 `Transport(url, token, 300.0)` 发一次不带会话的 `list_worlds` 成功 | 管理传输的设计不用改。Starling 以后改了这两个签名,rise 的管理调用就坏了;句柄调用不受影响 | 第 3 步加一条测试按 `inspect.signature` 钉住两个签名;升级 Starling 时重跑 `scripts/check_starling_deps.py` |
-| 38 | [计划中] 真模型部署时,关键词信号在模型自由发言上触发多少 | 信号是关键词匹配,情境与人格是英文,英文情绪词典只有五个词;不触发时轮次零发现、零提案,技能库不增长 | 171 上跑一个 `--agent-backend vllm` 的部署轮次,统计每条 episode 的信号与 findings |
+| 38 | [已落地] 真模型部署时,关键词信号在模型自由发言上触发多少。2026-11-15 在 171 上实测:三个情境各一条 4 轮 episode,对手位中英文自由发言,零发现、零提案(选中技能为空不算路由错) | 信号是关键词匹配,情境与人格是英文,英文情绪词典只有五个词;不触发时轮次零发现、零提案,技能库不增长 | 171 上跑一个 `--agent-backend vllm` 的部署轮次,统计每条 episode 的信号与 findings |
 
 ## 11. 决策总表
 
