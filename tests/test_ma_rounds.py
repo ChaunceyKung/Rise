@@ -1,5 +1,6 @@
 import json
 import subprocess
+from contextlib import contextmanager
 from types import SimpleNamespace
 
 import grpc
@@ -8,7 +9,7 @@ import pytest
 from simple_actio.memory import FileTupleStore
 from controlplane.envelope import BigRef, Envelope, OwnerRef
 from controlplane.gitstore import GitStore
-from controlplane.lock import hold_file_lock
+from controlplane.lock import FileLockBusyError, hold_file_lock
 from controlplane.paths import (
     CONTROL_PLANE_ROOT, run_dir, agent_round_file, episode_file, episodes_dir, failure_record_file, model_file, proposal_file, skill_file,
     scenario_file,
@@ -97,13 +98,16 @@ class _FakeClient:
 
 
 class _Factory:
-    def __init__(self, lines=(ANGRY, "好吧"), plans=()):
+    def __init__(self, lines=(ANGRY, "好吧"), plans=(), fail_first_n=0):
         self.lines = lines
         self.plans = list(plans)
+        self.fail_first_n = fail_first_n
         self.count = 0
 
     def __call__(self, **kw):
         self.count += 1
+        if self.count <= self.fail_first_n:                # 每个会话建起来都是瞬态的(服务不可用)
+            return _FakeClient(self.lines, create_error=_Unavailable())
         return _FakeClient(self.lines, **(self.plans.pop(0) if self.plans else {}))
 
 
@@ -154,7 +158,7 @@ def _loader(store, ids):
     return {pid: read_persona(store, pid) for pid in ids}
 
 
-def _handler(factory=None, bridge=None, backends=None, mem=None, **cfg):
+def _handler(factory=None, bridge=None, backends=None, mem=None, deployment_service=None, **cfg):
     seen = backends if backends is not None else []
 
     def backend_factory(model_id, ckpt):
@@ -164,7 +168,47 @@ def _handler(factory=None, bridge=None, backends=None, mem=None, **cfg):
     return make_start_round_handler(
         config=_cfg(**cfg), client_factory=factory or _Factory(), backend_factory=backend_factory,
         personas_loader=_loader, bridge=bridge, memory_store=mem.store, memory_layout=mem.layout,
-        memory_runtime=STAND_IN_MEMORY_RUNTIME)
+        memory_runtime=STAND_IN_MEMORY_RUNTIME, deployment_service=deployment_service)
+
+
+class _FakeService:
+    """部署服务上下文的替身工厂:记录每次 open 的 round_id 与退出次数;交出的工厂再记每次造后端的调用。
+    enter_raises 让进入时就抛(租约被占),exit_raises 让退出时抛(停服务的延后)。"""
+
+    def __init__(self, *, enter_raises=None, exit_raises=None):
+        self.entered = []
+        self.exited = 0
+        self.backend_calls = []
+        self._enter_raises = enter_raises
+        self._exit_raises = exit_raises
+
+    def __call__(self, round_id):
+        self.entered.append(round_id)
+        return self._context()
+
+    @contextmanager
+    def _context(self):
+        if self._enter_raises is not None:
+            raise self._enter_raises
+        try:
+            yield SimpleNamespace(backend_factory=self._backend)
+        finally:
+            self.exited += 1
+            if self._exit_raises is not None:
+                raise self._exit_raises
+
+    def _backend(self, model_id, ckpt):
+        self.backend_calls.append((model_id, ckpt))
+        return Echo()
+
+
+def _world_lock_held(mem, scenario_id) -> bool:
+    """该情境世界的锁现在还被别人占着吗。试着另开一次:拿到就是没被占(随即放掉),被拒就是还占着。"""
+    try:
+        with hold_file_lock(mem.layout.world_lock(scenario_id)):
+            return False
+    except FileLockBusyError:
+        return True
 
 
 def _start(store, handler, model="zengen-v1"):
@@ -1212,3 +1256,55 @@ def test_a_replay_port_is_closed_when_instantiate_raises(store, mem, monkeypatch
         _start(store, _handler(mem=mem))
     assert closed                                                      # 端口没交给实例,也关上了
     assert not (mem.layout.root / "snapshots" / ROUND).exists()        # 收尾照常放重放世界、删快照
+
+
+# ---------------- 部署服务上下文(真模型部署设计第 8 章):只在真跑部署时进入 ----------------
+
+def test_the_round_runs_inside_the_deployment_service(store, mem):
+    svc = _FakeService()
+    passed = []                                                       # 参数里的后端工厂:进了上下文就不该被用
+    env = _start(store, _handler(mem=mem, backends=passed, deployment_service=svc))
+    assert env.status == "executed" and svc.entered == ["agent-round-zengen-v1"] and svc.exited == 1
+    assert svc.backend_calls and not passed                           # 部署用的是上下文交出的后端工厂
+
+
+def test_no_service_is_started_when_inputs_are_missing(store, mem):
+    (store.repo_root / scenario_file("s1")).unlink()                  # 照本文件删情境的写法:直接删文件
+    svc = _FakeService()
+    env = _start(store, _handler(mem=mem, deployment_service=svc))
+    assert env.status == "failed" and svc.entered == []
+
+
+def test_no_service_for_a_terminal_round(store, mem):
+    svc = _FakeService()
+    _start(store, _handler(mem=mem))                                  # 先跑成 executed
+    _start(store, _handler(mem=mem, deployment_service=svc))
+    assert svc.entered == []
+
+
+def test_a_deferred_service_leaves_the_round_pending(store, mem):
+    from controlplane.deferred import DeferredError
+    with pytest.raises(DeferredError):
+        _start(store, _handler(mem=mem, deployment_service=_FakeService(enter_raises=DeferredError("busy"))))
+    assert store.read_product(agent_round_file("zengen-v1")).status == "pending"
+
+
+def test_the_service_is_exited_when_the_run_fails(store, mem):
+    from mindagent.deployment import DeploymentFailedError
+    svc = _FakeService()
+    factory = _Factory(fail_first_n=99)                               # 部署每次尝试都失败、瞬态
+    with pytest.raises(DeploymentFailedError) as info:
+        _start(store, _handler(mem=mem, factory=factory, deployment_service=svc))
+    assert info.value.transient
+    assert svc.exited == 1                                            # 失败也退出上下文、停服务
+    assert not _world_lock_held(mem, "s1") and not _world_lock_held(mem, "s3")   # 世界锁已放
+
+
+def test_a_deferred_exit_after_success_leaves_the_round_committed(store, mem):
+    from controlplane.deferred import DeferredError
+    svc = _FakeService(exit_raises=DeferredError("stop retry"))
+    with pytest.raises(DeferredError):
+        _start(store, _handler(mem=mem, deployment_service=svc))
+    env = store.read_product(agent_round_file("zengen-v1"))
+    # 终态由 _run 末尾写(上下文退出在其后),所以这里是 executed
+    assert env.status == "executed" and not _world_lock_held(mem, "s1")   # 终态已写,下一 tick 见终态即返回

@@ -38,7 +38,7 @@ import logging
 import re
 import subprocess
 from collections.abc import Callable
-from contextlib import ExitStack
+from contextlib import AbstractContextManager, ExitStack, nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TypeVar
@@ -76,6 +76,9 @@ _log = logging.getLogger(__name__)
 _ROUND_FILE = re.compile(r"agent-round-(zengen-v(\d+))\.yaml$")
 
 BackendFactory = Callable[[str, "BigRef | None"], object]
+# 部署服务上下文:组合根造、按轮次 id 开一个,进入后把本轮所有模型后端都换成它的;本包只当普通上下文管理器
+# 用,对交出的对象只读 backend_factory 一个属性(鸭子类型,不导入 factory)
+DeploymentServiceFactory = Callable[[str], AbstractContextManager]
 PersonasLoader = Callable[[GitStore, list[str]], dict[str, Persona]]
 Handler = Callable[[GitStore, Action], None]
 Rollback = Callable[[Envelope], None]
@@ -314,6 +317,7 @@ def make_start_round_handler(
     unregister_episode: Callable[[str], None] = lambda eid: None,
     close_wait_s: float = SESSION_CLOSE_WAIT_S,
     admission_wait_s: float = ADMISSION_WAIT_S,
+    deployment_service: DeploymentServiceFactory | None = None,
 ) -> Handler:
     """backend_factory(model_id, checkpoint_ref) 每次调用返回一个新的模型后端(普通或带指导语的);
     personas_loader(store, persona_ids) 返回 {persona_id: Persona}。bridge 缺省走规则模板。
@@ -322,7 +326,11 @@ def make_start_round_handler(
     register_episode(部署 id, round_id)与 unregister_episode(部署 id)原样交给部署驱动器:stream_deadline_s 为
     None 时客户端工厂用它自己的现值;两个登记回调让服务端给部署会话的对手位在同一世界里开端口,缺省什么都不做。
     close_wait_s(回滚与部署驱动器等世界端口全关的上限)与 admission_wait_s(准入退避的总等待)缺省是本包的常量;
-    组合根接记忆服务时按服务端点推出更长的值传进来(服务端收尾的 join 随之放长)。"""
+    组合根接记忆服务时按服务端点推出更长的值传进来(服务端收尾的 join 随之放长)。
+    deployment_service(round_id) 是部署服务上下文的工厂(--agent-backend vllm 时由组合根注入):输入检查通过之后、
+    部署之前进入,部署与验证都改用上下文交出的 backend_factory;轮次返回或抛出时退出。None(罐头路径)时不起
+    任何服务,行为与不传这个参数时相同;已终态、被取代、模型不合法、读库失败、拿不到世界锁、输入缺失这些出口
+    都不进入上下文。"""
     generator = RULE_GENERATOR if bridge is None else BRIDGE_GENERATOR
     runtime = copy.deepcopy(memory_runtime)
 
@@ -446,7 +454,10 @@ def make_start_round_handler(
                 env.payload["episode_digests"] = copy.deepcopy(existing.payload.get("episode_digests", {}))
             store.write_product(rel, env, f"mindagent: {env.id} pending")
             _check_inputs(store, config)
-            _run(store, env, lib, run_id, model_id, ckpt)
+            # 部署服务上下文插在输入检查之后、部署之前(设计 50 篇第 5 章):缺输入这类确定性失败不起服务、
+            # 不占整机租约。None 时 nullcontext 不出任何东西,_run 用参数里的 backend_factory(罐头路径)。
+            with (deployment_service(env.id) if deployment_service else nullcontext()) as svc:
+                _run(store, env, lib, run_id, model_id, ckpt, svc.backend_factory if svc else backend_factory)
         except DeploymentFailedError as exc:
             if exc.transient:
                 raise  # 瞬态:不回滚,轮次留 pending,重入时驱动器"副本在就先覆盖"
@@ -464,7 +475,8 @@ def make_start_round_handler(
             record(f"{type(exc).__name__}: {exc}", "mindagent.rounds", 0)
 
     def _run(store: GitStore, env: Envelope, lib: LibraryState, run_id: str, model_id: str,
-             ckpt: BigRef | None) -> None:
+             ckpt: BigRef | None, backend_factory: BackendFactory) -> None:
+        # backend_factory 由调用方决定:进了部署服务上下文时是上下文交出的那个(部署与验证共用本轮的服务)
         interlocutors = {b.slot_id: b.persona_id for b in config.bindings}
         profile = {"model_id": model_id, "round_id": env.id}
 
