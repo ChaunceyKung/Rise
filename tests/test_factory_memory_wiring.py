@@ -94,6 +94,12 @@ def test_turn_timeouts_follow_section_6_4():
     assert deploy_turn_timeout_s(interact=True, starling=False) == 150.0
 
 
+def test_the_vllm_agent_backend_waits_as_long_as_a_training_turn():
+    assert deploy_turn_timeout_s(interact=False, starling=True, agent_backend="vllm") == 150.0
+    assert deploy_turn_timeout_s(interact=False, starling=True, agent_backend="canned") == 40.0
+    assert deploy_turn_timeout_s(interact=True, starling=True, agent_backend="vllm") == 150.0
+
+
 def test_without_the_variable_the_wiring_is_the_stand_in_and_logs_it_once(tmp_path, caplog):
     with caplog.at_level(logging.INFO, logger="factory.memory_runtime"):
         w = memory_wiring(tmp_path / "repo", {}, deployment=True)
@@ -362,6 +368,24 @@ def test_the_stand_in_round_handler_keeps_the_defaults(store, monkeypatch):
         assert "stream_deadline_s" not in seen["round"]
         assert seen["round"]["client_factory"].__self__._timeout == 5.0
         assert asm.on_locked is None
+    finally:
+        asm.close()
+
+
+def test_the_shared_runtime_waits_for_the_agent_turn_under_vllm(store, monkeypatch):
+    """用 MemoryWiring 形状的替身冒充 Starling 后端(不起服务):等提交上限取 agent_deploy_turn_s。"""
+    import factory.handlers as fh
+    from factory.memory_budget import BASE_LAYERS
+    from factory.memory_runtime import MemoryWiring
+    seen = {}
+    monkeypatch.setattr(fh, "make_start_round_handler", lambda **kw: seen.setdefault("round", kw) and None or (lambda s, a: None))
+    real = wire.memory_wiring(store.repo_root, {}, deployment=True)
+    fake = MemoryWiring(backend="starling", deployment=real.deployment, memory_resolver=real.memory_resolver,
+                        training_worlds=real.training_worlds, budget=BASE_LAYERS)
+    monkeypatch.setattr(wire, "memory_wiring", lambda *a, **kw: fake)
+    asm = assemble(store, FactoryOptions(switches=("agent",), agent_backend="vllm"), env={})
+    try:
+        assert seen["round"]["client_factory"].__self__._timeout == BASE_LAYERS.agent_deploy_turn_s == 150.0
     finally:
         asm.close()
 

@@ -50,6 +50,7 @@ def make_mindtrainer_dispatcher(**kwargs) -> Dispatcher:
 PLANNER_BACKENDS = ("bridge", "heuristic")
 EXECUTORS = ("mock", "roll")
 EVALUATORS = ("mock", "someval")  # 设计 FC-16
+AGENT_BACKENDS = ("canned", "vllm")   # 部署轮智能体位的后端:罐头台词,或真 vLLM 模型
 
 
 @dataclass(frozen=True)
@@ -62,6 +63,7 @@ class FactoryOptions:
     executor: str = "mock"  # roll:真实 ROLL LoRA SFT 执行器(设计 FC-15),默认 mock
     endpoint: str | None = None  # 只在 executor == "roll" 或 interact 时有意义:点名 compute/endpoints.yaml 里的端点
     evaluator: str = "mock"  # someval:真实 SoMEval 评测(设计 FC-16);必须与 --executor roll 同用
+    agent_backend: str = "canned"  # vllm:部署轮的智能体位由真模型说话;需要 --enable agent 与 Starling 记忆,与 --interact 互斥
     interact: bool = False  # 给派发器注入实时客户端与策略工厂,让 interact 指令跑完;与 --executor roll 互斥
 
 
@@ -188,18 +190,21 @@ def memory_wiring(repo_root: Path, env: Mapping[str, str], *, deployment: bool) 
     return _impl(repo_root, env, deployment=deployment)
 
 
-def deploy_turn_timeout_s(*, interact: bool, starling: bool, budget=None) -> float | None:
+def deploy_turn_timeout_s(*, interact: bool, starling: bool, agent_backend: str = "canned", budget=None) -> float | None:
     """共用运行时里「服务端等一次提交」的上限(设计二 6.4 节、FC-31、FC-51);None 即保持 AgentRuntime 的默认 5 秒。
 
     `budget` 是 `factory.memory_budget.MemoryTimeBudget`,缺省是固定的 `BASE_LAYERS`。`--interact` 开着取它的
     `interact_turn_s`(替身 150 秒),与 `--enable agent` 同开也是它:两条路共用一个运行时,取较大值。只有 `--enable agent`
-    且是 Starling 时取 `deploy_turn_s`(按服务端点推出)。替身没有网络调用,保持现值。"""
+    且是 Starling 时取 `deploy_turn_s`(按服务端点推出);`agent_backend == "vllm"` 时智能体位也是一次真模型调用,
+    取 `agent_deploy_turn_s`(= 训练一轮的 `interact_turn_s`),与 `interact` 同开取较大值。替身没有网络调用,保持现值。"""
     if budget is None:
         from factory.memory_budget import BASE_LAYERS
 
         budget = BASE_LAYERS
     if interact:
         return max(INTERACT_TURN_TIMEOUT_S, budget.interact_turn_s)
+    if agent_backend == "vllm":
+        return budget.agent_deploy_turn_s
     if starling:
         return budget.deploy_turn_s
     return None
@@ -212,7 +217,8 @@ def _runtime_timeouts(options: FactoryOptions, keys: frozenset[str], memory) -> 
     budget = None if memory is None else memory.budget
     out: dict = {}
     timeout = deploy_turn_timeout_s(interact=options.interact,
-                                    starling=memory is not None and memory.backend == "starling", budget=budget)
+                                    starling=memory is not None and memory.backend == "starling",
+                                    agent_backend=options.agent_backend, budget=budget)
     if timeout is not None:
         out["turn_timeout_s"] = timeout
     derived = budget is not None and budget.derived
@@ -451,8 +457,17 @@ def assemble(
             "--interact cannot be combined with --executor roll: the real executor only supports SFT, "
             "so it cannot run a live interact session"
         )
-    if options.endpoint is not None and options.executor != "roll" and not options.interact:
-        raise FactoryConfigError("--endpoint only makes sense with --executor roll or --interact")
+    if options.agent_backend not in AGENT_BACKENDS:
+        raise FactoryConfigError(
+            f"agent backend must be one of {list(AGENT_BACKENDS)}, got {options.agent_backend!r}"
+        )
+    if options.agent_backend == "vllm" and "agent" not in options.switches:
+        raise FactoryConfigError("--agent-backend vllm needs --enable agent: it replaces the deployment round's backend")
+    if options.agent_backend == "vllm" and options.interact:
+        raise FactoryConfigError("--agent-backend vllm cannot be combined with --interact: both hold the whole-host GPU lease")
+    if (options.endpoint is not None and options.executor != "roll" and not options.interact
+            and options.agent_backend != "vllm"):
+        raise FactoryConfigError("--endpoint only makes sense with --executor roll, --interact or --agent-backend vllm")
     if options.evaluator not in EVALUATORS:
         raise FactoryConfigError(f"evaluator must be one of {list(EVALUATORS)}, got {options.evaluator!r}")
     if options.evaluator == "someval" and options.executor != "roll":
@@ -514,6 +529,12 @@ def assemble(
     memory = None
     if options.interact or needs_deployment:
         memory = memory_wiring(store.repo_root, environ, deployment=needs_deployment)
+    if options.agent_backend == "vllm" and (memory is None or memory.backend != "starling"):
+        # 替身没有网络调用、也没有真模型位的等提交预算;这时装配下去只会得到罐头后端,静默降级比报错更难查
+        raise FactoryConfigError(
+            "--agent-backend vllm needs the Starling memory service (set RISE_MEMORY_CONFIG); "
+            "the stand-in memory has no deployment time budget"
+        )
     # 服务的收尾(关会话、停拉起的服务)最先登记:逆序执行,所以最后跑,先关运行时与端口
     early = [] if memory is None else list(memory.closers)
     # 部署对手位进部署世界:只有轮次处理器登记部署 episode,只开 admit 时不给。与轮次处理器、门② 同一个管理面

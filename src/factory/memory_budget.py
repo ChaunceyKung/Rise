@@ -126,7 +126,7 @@ class MemoryTimeBudget:
     |---|---|
     | `handle_s` 客户端句柄调用超时 | 一次句柄调用 |
     | `drain_window_s` 排空窗口、`port_close_s` 关端口等在途调用 | 一次句柄调用的客户端超时 |
-    | `deploy_turn_s` 部署时服务端等一次提交 | 一轮记忆(部署的智能体位后端是罐头) |
+    | `deploy_turn_s` 部署时服务端等一次提交 | 一轮记忆(罐头智能体位;真模型见 `agent_deploy_turn_s`) |
     | `backend_s` 服务端单次后端调用 | 对手 HTTP `opponent_s` 加一轮记忆 |
     | `interact_turn_s` 训练时服务端等一次提交 | 训练位策略 HTTP `policy_s` 加一轮记忆 |
     | `message_s` 客户端等相邻两条服务端消息 | 一次后端调用 |
@@ -150,6 +150,16 @@ class MemoryTimeBudget:
     join_s: float
     close_wait_s: float
     admission_wait_s: float
+
+    @property
+    def agent_deploy_turn_s(self) -> float:
+        """真模型智能体位的部署等提交:与训练一轮同形(一次模型 HTTP 加一轮记忆),取 `interact_turn_s`。"""
+        return self.interact_turn_s
+
+    @property
+    def agent_deploy_per_turn_s(self) -> float:
+        """真模型智能体位的流 deadline 每轮:与训练的每轮同取较长的那一层。"""
+        return max(self.interact_turn_s, self.backend_s)
 
     def violations(self) -> list[str]:
         """不成立的包含关系,每条写出两层与数值;推出的预算应为空表。"""

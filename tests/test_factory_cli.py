@@ -159,3 +159,10 @@ def test_import_sombench_exits_2_while_the_repository_is_locked_and_writes_nothi
     err = capsys.readouterr().err
     assert err.startswith("factory: error: repository is locked by another process: ")
     assert _snapshot(store) == before
+
+
+def test_agent_backend_flag_parses_into_the_options():
+    from factory.cli import _options, build_parser
+    args = build_parser().parse_args(["run", "/tmp/x", "--enable", "agent", "--agent-backend", "vllm"])
+    assert _options(args).agent_backend == "vllm"
+    assert _options(build_parser().parse_args(["run", "/tmp/x"])).agent_backend == "canned"

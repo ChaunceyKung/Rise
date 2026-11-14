@@ -754,3 +754,30 @@ def test_the_dev_entry_script_lets_the_loop_turn_on_mock_evidence_and_the_plain_
 
     assert run_script("run_factory.py") == "no actions\n"
     assert run_script("run_factory_dev.py") == f"plan_next_round {RUN}\n"
+
+
+# ---- --agent-backend:开关、组合规则 ----
+
+@pytest.mark.parametrize("opts, match", [
+    (dict(agent_backend="gpu"), r"agent backend must be one of"),
+    (dict(agent_backend="vllm", switches=()), r"--agent-backend vllm needs --enable agent"),
+    (dict(agent_backend="vllm", switches=("agent",), interact=True), r"cannot be combined with --interact"),
+])
+def test_agent_backend_combinations_are_rejected_at_assembly(real_repo, opts, match):
+    with pytest.raises(FactoryConfigError, match=match):
+        assemble(real_repo, FactoryOptions(**opts), env={})
+
+
+def test_agent_backend_vllm_with_stand_in_memory_is_rejected(tmp_path):
+    store = closed_loop_repo(str(tmp_path / "cp"))
+    with pytest.raises(FactoryConfigError, match=r"--agent-backend vllm needs the Starling memory service"):
+        assemble(store, FactoryOptions(switches=("agent",), agent_backend="vllm"), env={})
+
+
+def test_endpoint_is_allowed_with_agent_backend_vllm(tmp_path):
+    """--endpoint 不再被「only makes sense」挡下;后面的替身记忆拒绝才是这条路的结果。"""
+    store = closed_loop_repo(str(tmp_path / "cp"))
+    with pytest.raises(FactoryConfigError) as e:
+        assemble(store, FactoryOptions(switches=("agent",), agent_backend="vllm", endpoint="gpu-1"), env={})
+    assert "--endpoint only makes sense" not in str(e.value)
+    assert "needs the Starling memory service" in str(e.value)

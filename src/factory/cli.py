@@ -25,7 +25,7 @@ from controlplane.lock import RepoLockedError, acquire_repo_lock
 from factory import readonly
 from factory.errors import FactoryConfigError
 from factory.switches import SWITCHES, UnknownSwitchError, parse_enable
-from factory.wire import (EVALUATORS, EXECUTORS, PLANNER_BACKENDS, FactoryOptions, HandlerBuilder,
+from factory.wire import (AGENT_BACKENDS, EVALUATORS, EXECUTORS, PLANNER_BACKENDS, FactoryOptions, HandlerBuilder,
                           reconcile_one_tick, run)
 
 
@@ -46,8 +46,11 @@ def _assembly_flags(p: argparse.ArgumentParser) -> None:
                    help="训练执行器:mock 是确定性替身(默认);roll 经 SSH 在远端 GPU 主机上跑真实 ROLL LoRA SFT,"
                         "一次训练会同步占住调和循环数小时,且暂不能与 --enable 同用")
     p.add_argument("--endpoint", default=None,
-                   help="只在 --executor roll 或 --interact 时有意义:点名 compute/endpoints.yaml 里的端点 id;"
+                   help="只在 --executor roll、--interact 或 --agent-backend vllm 时有意义:点名 compute/endpoints.yaml 里的端点 id;"
                         "只有一个端点时可省")
+    p.add_argument("--agent-backend", choices=AGENT_BACKENDS, default="canned",
+                   help="部署轮智能体位的后端:canned 是罐头台词(默认);vllm 由真模型说话,需要 --enable agent 与 "
+                        "Starling 记忆服务,不能与 --interact 同用")
     p.add_argument("--evaluator", choices=EVALUATORS, default="mock",
                    help="诊断评估器:mock 是确定性替身(默认);someval 起 vLLM 服务并用 SoMEval 评测真实候选,"
                         "必须同时给 --executor roll,且暂不能与 --enable 同用")
@@ -110,6 +113,7 @@ def _options(args: argparse.Namespace) -> FactoryOptions:
         endpoint=args.endpoint,
         evaluator=getattr(args, "evaluator", "mock"),
         interact=getattr(args, "interact", False),
+        agent_backend=getattr(args, "agent_backend", "canned"),
     )
 
 

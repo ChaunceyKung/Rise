@@ -212,3 +212,9 @@ def test_the_base_layers_are_the_constants_the_wiring_used_before():
     assert (BASE_LAYERS.join_s, BASE_LAYERS.close_wait_s, BASE_LAYERS.admission_wait_s) == (
         join, deployment.SESSION_CLOSE_WAIT_S, deployment.ADMISSION_WAIT_S)
     assert ts.ADMISSION_WAIT_S == deployment.ADMISSION_WAIT_S
+
+
+def test_agent_deploy_layers_follow_the_training_turn():
+    b = BASE_LAYERS
+    assert b.agent_deploy_turn_s == b.interact_turn_s == 150.0
+    assert b.agent_deploy_per_turn_s == max(b.interact_turn_s, b.backend_s)
