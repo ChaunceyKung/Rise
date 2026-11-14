@@ -25,6 +25,7 @@ from typing import TypeVar
 
 import grpc
 
+from simple_actio.backend_errors import AgentBackendError
 from simple_actio.errors import SimpleActioDataError
 from simple_actio.memory_port import DeploymentMemoryStore, MemoryBackend, MemoryFailureError
 from simple_actio.trace import normalize_library_version, validate_trace
@@ -312,7 +313,7 @@ def _attempt(instance, client_factory, scenario, assignment, personas, agent_slo
                            deadline_s=deadline_s, admission_wait_s=admission_wait_s, sleep=sleep, clock=clock)
     try:
         while not client.closed:
-            # 记忆端口的失败按 transient 分两个终止原因,信息只报类名(第 10 节);策略(SimpleActio 实例)的
+            # 记忆端口的失败按 transient 分两个终止原因,智能体位后端的失败带自己的 reason,都只报类名(第 10 节);策略(SimpleActio 实例)的
             # 其余异常不在任何 except 里:穿过下面的 finally(先 abort)原样上抛
             try:
                 utterance, thought, trace = instance.respond(persona, scenario, client.turns, agent_slot)
@@ -321,6 +322,9 @@ def _attempt(instance, client_factory, scenario, assignment, personas, agent_slo
                     "role_memory_unavailable" if exc.transient else "role_memory_failure",
                     type(exc).__name__, exc.transient,
                 ) from None
+            except AgentBackendError as exc:
+                # 智能体位模型后端失败:reason 与 transient 由组合根转出的异常自带,信息只报类名
+                raise _AttemptFailed(exc.reason, type(exc).__name__, exc.transient) from None
             _client_op(lambda: client.submit_turn(utterance, thought, activation_trace=trace))
         episode = _client_op(client.drain_until_end)
     finally:

@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import grpc
 import pytest
 
+from simple_actio.backend_errors import AgentBackendRejected, AgentBackendTimeout
 from simple_actio.instance import instantiate
 from simple_actio.memory import FileTupleStore
 from simple_actio.memory_port import MemoryEvent, MemoryEventConflict, MemoryFailureError
@@ -382,6 +383,41 @@ def test_an_instance_exception_aborts_the_fake_session_unwrapped(store, mem):
     with pytest.raises(RuntimeError, match="model bug") as exc:
         _run(store, f, mem, make=_make(backend=Broken()))
     assert not isinstance(exc.value, DeploymentFailedError)
+    assert f.clients[0].aborted
+
+
+class _FailsOnce(Echo):
+    """第一次 respond_guided 抛 exc,之后正常回复。"""
+
+    def __init__(self, exc):
+        self._exc = exc
+        self.calls = 0
+
+    def respond_guided(self, *a):
+        self.calls += 1
+        if self.calls == 1:
+            raise self._exc
+        return ("ok", None)
+
+
+def test_an_agent_backend_timeout_is_a_transient_attempt_and_the_world_is_rolled_back(store, mem):
+    backend = _FailsOnce(AgentBackendTimeout("model slow"))
+    f = _Factory()
+    episodes = _run(store, f, mem, make=_make(backend=backend), max_retries_per_episode=1)
+    assert len(episodes) == 1                       # 第二次尝试成功
+    assert len(f.clients) == 2                      # 第一次失败后重跑,重开了会话
+    assert f.clients[0].aborted                     # 失败的那次先 abort 了会话
+    assert not f.clients[1].aborted
+
+
+def test_an_agent_backend_rejection_fails_the_episode_without_retry(store, mem):
+    backend = _FailsOnce(AgentBackendRejected("bad request"))
+    f = _Factory()
+    with pytest.raises(DeploymentFailedError) as info:
+        _run(store, f, mem, make=_make(backend=backend), max_retries_per_episode=2)
+    assert (info.value.reason, info.value.transient, info.value.attempts) == ("role_backend_rejected", False, 1)
+    assert [a["reason"] for a in info.value.failed_attempts] == ["role_backend_rejected"]
+    assert len(f.clients) == 1
     assert f.clients[0].aborted
 
 
