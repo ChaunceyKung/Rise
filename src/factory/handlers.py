@@ -7,7 +7,8 @@
 - nominate_recipe:计划 5 的 make_nominate_handler;accept_mock_evidence 与传给 reconcile_once 的是
   同一个值(--allow-mock-evidence);repo_commit 来自 BuildContext。
 - start_agent_round:计划 7 的 make_start_round_handler;AgentConfig 与对手台词来自 agent.yaml,
-  实时服务端是进程内 loopback(factory.agent.AgentRuntime),模型后端是罐头后端。
+  实时服务端是进程内 loopback(factory.agent.AgentRuntime),模型后端是罐头后端(--agent-backend vllm 时由
+  BuildContext.deployment_service 换成部署服务上的基座)。
   它与 admit_proposal 共用 BuildContext.deployment_memory(assemble 造的那一份),运行时开对手位端口也用其中的 store;
   部署驱动器经运行时的部署登记表把轮次 id 交给服务端。
 """
@@ -110,8 +111,15 @@ def _agent(ctx) -> Handler:
     bridge = ctx.bridge("agent") if _has_bridge_role(ctx.store, "agent") else None
     # Starling:整条流的 deadline 按 max_turns × 每轮折算(拉起与外部模式都按服务端点推出,FC-31、FC-51),
     # 训练路的流 deadline 由轨迹源自己传;替身不传,保持 AgentRuntime 的缺省。推出的预算另传等端口全关与准入退避的上限,
-    # 两者随服务端收尾的 join 一起放长
-    extra: dict = {"stream_deadline_s": config.max_turns * budget.deploy_per_turn_s} if starling else {}
+    # 两者随服务端收尾的 join 一起放长。
+    # --agent-backend vllm:智能体位也是一次真模型调用,每轮取 agent_deploy_per_turn_s(与训练一轮同形)。
+    backend = ctx.agent_backend
+    if backend == "vllm":
+        extra: dict = {"stream_deadline_s": config.max_turns * budget.agent_deploy_per_turn_s}
+    elif starling:
+        extra = {"stream_deadline_s": config.max_turns * budget.deploy_per_turn_s}
+    else:
+        extra = {}
     if budget.derived:
         extra.update(close_wait_s=budget.close_wait_s, admission_wait_s=budget.admission_wait_s)
     return make_start_round_handler(
@@ -125,6 +133,7 @@ def _agent(ctx) -> Handler:
         memory_runtime=mem.runtime,
         register_episode=runtime.register_deployment_episode,
         unregister_episode=runtime.unregister_deployment_episode,
+        deployment_service=ctx.deployment_service,
         **extra,
     )
 

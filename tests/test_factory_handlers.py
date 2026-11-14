@@ -676,6 +676,105 @@ def test_a_canned_deployment_opponent_without_its_script_keeps_the_global_lines(
     res.close()
 
 
+class _Echo:
+    """测试用的模型后端:不管情境与历史,一律说同一句(替身 vLLM 基座)。"""
+
+    def __init__(self, line):
+        self.line = line
+
+    def respond(self, persona, scenario, history, speaker_slot):
+        return self.line, None
+
+
+def test_a_registered_deployment_session_uses_the_bound_opponent_factory(store, tmp_path):
+    """模型开关装着时,部署会话的对手位由它造的后端说话(这一位的剧本不生效)。"""
+    runtime, _ = _deploy_runtime(store, tmp_path)
+    with runtime.bind_deployment_opponents(lambda b, s: _Echo("模型说")):
+        res = runtime._backends(_slot_info(_scenario_with(), _three_slots(), episode_id="deploy-m-s1-1"))
+    assert _says(res.backends["b"], "b", 2) == ["模型说", "模型说"]
+    assert _says(res.backends["c"], "c", 1) == ["模型说"]
+    res.close()
+
+
+def test_the_model_switch_is_off_again_after_the_block(store, tmp_path):
+    """退出上下文就卸下:之后开的部署会话回到罐头台词,剧本照旧生效。"""
+    runtime, _ = _deploy_runtime(store, tmp_path)
+    with runtime.bind_deployment_opponents(lambda b, s: _Echo("模型说")):
+        pass
+    res = runtime._backends(_slot_info(_scenario_with({"b": ["一"]}), _three_slots(), episode_id="deploy-m-s1-1"))
+    assert _says(res.backends["b"], "b", 2) == ["一", "一"]
+    assert _says(res.backends["c"], "c", 1) == ["嗯"]
+    res.close()
+
+
+def test_the_model_switch_overrides_the_script_but_not_an_explicit_scripted_driver(store, tmp_path):
+    """显式 driver: scripted 仍是剧本(判定第一行),其余对手位交给模型;情境剧本对它们不生效。"""
+    from simulator.datamodel import RoleBinding
+    runtime, _ = _deploy_runtime(store, tmp_path)
+    assignment = _assignment(
+        RoleBinding("a", "pa", "self_play"),
+        RoleBinding("b", "pb", "frozen_reference", model_ref="x"),
+        RoleBinding("c", "pc", "frozen_reference", model_ref="x", driver="scripted"),
+    )
+    scenario = _scenario_with({"b": ["一", "二"], "c": ["三"]})
+    with runtime.bind_deployment_opponents(lambda b, s: _Echo(f"模型-{b.slot_id}")):
+        res = runtime._backends(_slot_info(scenario, assignment, episode_id="deploy-m-s1-1"))
+    assert _says(res.backends["b"], "b", 2) == ["模型-b", "模型-b"]
+    assert _says(res.backends["c"], "c", 3) == ["三", "三", "三"]
+    res.close()
+
+
+def test_the_model_switch_applies_even_when_the_round_is_not_registered(store, tmp_path):
+    """判定只看"是不是部署会话"(没登记给训练 run),不看部署登记表:登记没查到时仍是模型说话,
+    剧本不会因为查不到轮次 id 又冒出来。"""
+    runtime, _ = _deploy_runtime(store, tmp_path)
+    with runtime.bind_deployment_opponents(lambda b, s: _Echo("模型说")):
+        res = runtime._backends(_slot_info(_scenario_with({"b": ["一"]}), _three_slots(), episode_id="deploy-别的"))
+    assert _says(res.backends["b"], "b", 1) == ["模型说"]
+    res.close()
+
+
+def test_a_slow_model_opponent_is_a_transient_attempt(store):
+    """开关装上的后端超时:经真实 loopback 的部署会话终止原因 role_backend_timeout(瞬态,按尝试重跑),
+    不是被通用异常分支吞成 role_backend_failure。"""
+    from factory.opponents import OpponentTimeoutError
+    from simulator.datamodel import RoleBinding
+
+    class Slow:
+        def respond(self, persona, scenario, history, speaker_slot):
+            raise OpponentTimeoutError("no answer within the deadline")
+
+    runtime = AgentRuntime(store, ("罐头",))
+    try:
+        with runtime.bind_deployment_opponents(lambda b, s: Slow()):
+            episode = _open_and_finish(runtime, "s-slow", [RoleBinding("a", "pa", "self_play"),
+                                                           RoleBinding("b", "pb", "frozen_reference", model_ref="x")])
+    finally:
+        runtime.close()
+    assert episode.terminated_reason == "role_backend_timeout"
+
+
+def test_training_sessions_ignore_the_deployment_switch(store):
+    """训练会话不看开关:登记给训练 run 的会话照旧念全局台词,工厂一次都不问。"""
+    runtime = AgentRuntime(store, ("全局",))
+    runtime.register_session("s1", "run-1")
+    with runtime.bind_deployment_opponents(_never_called):
+        res = runtime._backends(_slot_info(_scenario_with({"b": ["剧本乙"]}), _three_slots()))
+    assert _says(res.backends["b"], "b", 2) == ["全局", "(无更多发言)"]
+    res.close()
+
+
+def test_training_sessions_ignore_the_scenario_script_without_a_factory_either(store):
+    """补 cover 缺口:训练会话没有对手工厂时走 `run_id is None else None` 的另一支——情境给该位带了剧本,
+    也仍是全局台词、不循环。"""
+    runtime = AgentRuntime(store, ("全局甲", "全局乙"))
+    runtime.register_session("s1", "run-1")
+    res = runtime._backends(_slot_info(_scenario_with({"b": ["剧本乙"], "c": ["剧本丙"]}), _three_slots()))
+    assert _says(res.backends["b"], "b", 3) == ["全局甲", "全局乙", "(无更多发言)"]
+    assert _says(res.backends["c"], "c", 1) == ["全局甲"]
+    res.close()
+
+
 def test_training_sessions_still_ignore_the_scenario_script_without_a_scripted_driver(store):
     """训练会话不变:绑定没写 driver: scripted 就交给对手工厂,情境里的剧本不生效。"""
     made = []
@@ -810,6 +909,25 @@ def test_a_failing_port_open_closes_the_ports_already_opened(store, tmp_path, mo
     with pytest.raises(MemoryFailureError):
         runtime._backends(_slot_info(_scenario_with(), _three_slots(), episode_id="deploy-m-s1-1"))
     assert deploy.wait_closed("s1", 0.0)
+
+
+def test_the_deployment_switch_is_bound_without_the_runtime_lock(store):
+    """装上与卸下只取 _routes_lock:组合根在别的线程上装时,close() 可能正持着 _lock 等处理器退出。"""
+    runtime = AgentRuntime(store, ("嗯",))
+    entered, left = threading.Event(), threading.Event()
+
+    def churn():
+        with runtime.bind_deployment_opponents(_never_called):
+            entered.set()
+        left.set()
+
+    with runtime._lock:
+        worker = threading.Thread(target=churn, daemon=True)
+        worker.start()
+        assert entered.wait(5.0), "binding the deployment switch blocked on the runtime lock"
+    assert left.wait(5.0), "unbinding the deployment switch blocked on the runtime lock"
+    worker.join(timeout=5.0)
+    assert runtime._deployment_opponents is None
 
 
 def test_the_deployment_table_is_kept_without_the_runtime_lock(store, tmp_path):

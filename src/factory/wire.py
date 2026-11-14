@@ -11,7 +11,8 @@ from __future__ import annotations
 
 import logging
 import os
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import AbstractContextManager, ExitStack, contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -98,6 +99,11 @@ class BuildContext:
     runtime: AgentRuntime | None = None
     # 启用 start_agent_round 或 admit_proposal 时由 assemble 造的那一份部署记忆,两个构造器共用;其余是 None。
     deployment_memory: DeploymentMemory | None = None
+    # --agent-backend 的选择(--agent-backend vllm 时轮次处理器要据此换后端与流 deadline)。罐头路径的默认值。
+    agent_backend: str = "canned"
+    # --agent-backend vllm 时由 assemble 造的部署服务上下文工厂(round_id -> 上下文管理器);其余是 None。
+    # 它只是工厂:进入才起服务、占整机 GPU 租约,装配期一个字节都不碰远端。
+    deployment_service: Callable[[str], AbstractContextManager] | None = None
 
     def bridge(self, role: str) -> CliBridge:
         return build_bridge(self.store, role, env=self.env, log_dir=self.log_dir)
@@ -303,6 +309,31 @@ def _interact_wiring(
         wiring["source_options"] = {"per_turn_deadline_s": budget.per_turn_deadline_s,
                                     "admission_wait_s": budget.admission_wait_s}
     return wiring
+
+
+def _deployment_service_factory(
+    *, client, endpoint, runtime: AgentRuntime, agent_timeout_s: float, opponent_timeout_s: float,
+) -> Callable[[str], AbstractContextManager]:
+    """`--agent-backend vllm` 交给轮次处理器的部署服务上下文工厂(设计 50 篇第 5、8 章)。
+
+    一次进入做两件事,同一个 ExitStack 里按序:先起本轮的服务(`make_deployment_service` 交出的 open(round_id)),
+    再把它的对手工厂装到共用的运行时上(退出时按相反顺序卸下)。轮次处理器只读交出的 backend_factory(鸭子类型)。
+    装配期只造这个闭包:服务在第一次进入时才起,GPU 租约那时才占。"""
+    from factory.agent_backend import make_deployment_service      # 惰性:拖进 compute 与 factory.opponents
+
+    open_service = make_deployment_service(
+        client=client, endpoint=endpoint,
+        agent_timeout_s=agent_timeout_s, opponent_timeout_s=opponent_timeout_s,
+    )
+
+    @contextmanager
+    def open_round(round_id: str) -> Iterator[object]:
+        with ExitStack() as stack:
+            svc = stack.enter_context(open_service(round_id))
+            stack.enter_context(runtime.bind_deployment_opponents(svc.opponent_factory))
+            yield svc
+
+    return open_round
 
 
 def _dispatcher(options: FactoryOptions, runtime: AgentRuntime | None, **kwargs):
@@ -541,7 +572,17 @@ def assemble(
     deployment_store = None
     if "start_agent_round" in keys and memory is not None and memory.deployment is not None:
         deployment_store = memory.deployment.store
+    # `--agent-backend vllm` 的端点与客户端同 `--interact` 的写法(同一个 `--endpoint` 也在这里点名),在造运行时之前选,
+    # 配置错由下面那段的收尾一并处理。装配期只选端点、造客户端:不占租约、不起服务
+    endpoint = client = None
     try:
+        if options.agent_backend == "vllm":
+            from factory.compute_config import (
+                build_compute_client, read_endpoints_config, read_host_map, select_endpoint,
+            )
+
+            endpoint = select_endpoint(read_endpoints_config(store), options.endpoint)
+            client = build_compute_client(endpoint, read_host_map(env=environ))
         runtime, switch = _shared_runtime(
             store, options, keys, timeouts=_runtime_timeouts(options, keys, memory),
             training_worlds=None if memory is None else memory.training_worlds,
@@ -553,6 +594,14 @@ def assemble(
         except Exception:
             pass
         raise
+    deployment_service = None
+    if client is not None:
+        # 两个超时取预算里的两层 HTTP 上限:智能体位是训练一轮的等提交,对手位与 --interact 同
+        assert runtime is not None       # --agent-backend vllm 必须与 --enable agent 同开(上面已核)
+        deployment_service = _deployment_service_factory(
+            client=client, endpoint=endpoint, runtime=runtime,
+            agent_timeout_s=memory.budget.policy_s, opponent_timeout_s=memory.budget.opponent_s,
+        )
     ctx = BuildContext(
         store=store,
         accept_mock_evidence=options.allow_mock_evidence,
@@ -563,6 +612,8 @@ def assemble(
         repo_commit=resolve_repo_commit(options.repo_commit),
         runtime=runtime,
         deployment_memory=None if memory is None else memory.deployment,
+        agent_backend=options.agent_backend,
+        deployment_service=deployment_service,
         closers=early,
     )
     if runtime is not None:

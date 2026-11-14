@@ -781,3 +781,160 @@ def test_endpoint_is_allowed_with_agent_backend_vllm(tmp_path):
         assemble(store, FactoryOptions(switches=("agent",), agent_backend="vllm", endpoint="gpu-1"), env={})
     assert "--endpoint only makes sense" not in str(e.value)
     assert "needs the Starling memory service" in str(e.value)
+
+
+# ---- --agent-backend vllm:部署服务上下文接进轮次处理器 ----
+
+def _starling_shaped(monkeypatch, repo_root):
+    """用 MemoryWiring 形状的替身冒充 Starling(不起服务):装配只按 backend 与 budget 判,不碰真服务。
+    部署记忆与解析器借替身那一份,装配要用的就是它们。"""
+    import factory.wire as wire
+    from factory.memory_budget import BASE_LAYERS
+    from factory.memory_runtime import MemoryWiring, memory_wiring
+
+    real = memory_wiring(repo_root, {}, deployment=True)
+    fake = MemoryWiring(backend="starling", deployment=real.deployment, memory_resolver=real.memory_resolver,
+                        training_worlds=real.training_worlds, budget=BASE_LAYERS)
+    monkeypatch.setattr(wire, "memory_wiring", lambda *a, **kw: fake)
+    return fake
+
+
+def _record_round_handler(monkeypatch):
+    """截下 `_agent` 交给轮次处理器工厂的关键字参数。返回存放它们的那一格。"""
+    import factory.handlers as fh
+
+    seen: dict = {}
+    monkeypatch.setattr(fh, "make_start_round_handler",
+                        lambda **kw: seen.setdefault("round", kw) and None or (lambda s, a: None))
+    return seen
+
+
+def test_vllm_agent_backend_wires_the_service_into_the_round_handler(tmp_path, monkeypatch):
+    """`--agent-backend vllm`:装配按 --interact 同一写法选端点、造客户端,造出部署服务上下文工厂交给轮次处理器;
+    流 deadline 按每轮的真模型预算折算。装配本身不占租约、不起服务。"""
+    import factory.agent_backend as ab
+    from compute.client import ComputeClient
+    from factory.memory_budget import BASE_LAYERS
+
+    store = _closed(tmp_path, run_id=None)
+    _starling_shaped(monkeypatch, store.repo_root)
+    _write_endpoints(store, "gpu-1")
+    made = []
+
+    def make_service(**kw):
+        made.append(kw)
+        return lambda round_id: None
+
+    monkeypatch.setattr(ab, "make_deployment_service", make_service)
+    seen = _record_round_handler(monkeypatch)
+    asm = assemble(store, FactoryOptions(switches=("agent",), agent_backend="vllm"),
+                   env=_hosts(tmp_path, "gpu-1: gpu-181\n"))
+    try:
+        r = seen["round"]
+        assert callable(r["deployment_service"])
+        assert r["stream_deadline_s"] == r["config"].max_turns * BASE_LAYERS.agent_deploy_per_turn_s
+        assert len(made) == 1                       # 装配只造工厂,不进上下文
+        client, endpoint = made[0]["client"], made[0]["endpoint"]
+        assert isinstance(client, ComputeClient) and client.alias == "gpu-181"
+        assert endpoint.endpoint_id == "gpu-1"
+        assert (made[0]["agent_timeout_s"], made[0]["opponent_timeout_s"]) == (BASE_LAYERS.policy_s,
+                                                                             BASE_LAYERS.opponent_s)
+    finally:
+        asm.close()
+
+
+def test_canned_agent_backend_wires_nothing(tmp_path, monkeypatch):
+    """罐头后端:没有部署服务上下文,流 deadline 保持现行为(替身连 stream_deadline_s 都不传)。"""
+    store = _closed(tmp_path, run_id=None)
+    seen = _record_round_handler(monkeypatch)
+    asm = assemble(store, FactoryOptions(switches=("agent",)), env={})
+    try:
+        r = seen["round"]
+        assert r["deployment_service"] is None
+        assert "stream_deadline_s" not in r
+    finally:
+        asm.close()
+
+
+def test_a_missing_endpoint_config_under_vllm_is_a_clean_assembly_error(tmp_path, monkeypatch):
+    """端点配置缺了:装配期一行 FactoryConfigError,记忆那边的收尾(关会话、停服务)仍逆序跑完。"""
+    import factory.wire as wire
+    from factory.memory_budget import BASE_LAYERS
+    from factory.memory_runtime import MemoryWiring, memory_wiring, stand_in_deployment_memory
+
+    store = _closed(tmp_path, run_id=None)
+    closed = []
+    real = memory_wiring(store.repo_root, {}, deployment=True)
+    fake = MemoryWiring(backend="starling", deployment=stand_in_deployment_memory(store.repo_root),
+                        memory_resolver=real.memory_resolver, training_worlds=real.training_worlds,
+                        budget=BASE_LAYERS, closers=(lambda: closed.append("session"),))
+    monkeypatch.setattr(wire, "memory_wiring", lambda *a, **kw: fake)
+    with pytest.raises(FactoryConfigError, match="endpoints.yaml is missing"):
+        assemble(store, FactoryOptions(switches=("agent",), agent_backend="vllm"), env={})
+    assert closed == ["session"]
+
+
+def test_the_wrapped_factory_binds_the_opponents_inside_the_service(tmp_path, monkeypatch):
+    """包装后的工厂:同一个 ExitStack 里先进服务上下文、再装上对手开关;退出时按相反顺序卸下。"""
+    import contextlib
+    from types import SimpleNamespace
+
+    import factory.agent_backend as ab
+
+    store = _closed(tmp_path, run_id=None)
+    _starling_shaped(monkeypatch, store.repo_root)
+    _write_endpoints(store, "gpu-1")
+    order, rounds = [], []
+
+    def opponent(binding, scenario):
+        return _Echo("服务基座")
+
+    @contextlib.contextmanager
+    def open_service(round_id):
+        order.append(("enter", round_id))
+        try:
+            yield SimpleNamespace(backend_factory=lambda model_id, ckpt: ("罐头", model_id, ckpt),
+                                  opponent_factory=opponent)
+        finally:
+            order.append(("exit", round_id))
+
+    def make_service(**kw):
+        rounds.append(kw)
+        return open_service
+
+    monkeypatch.setattr(ab, "make_deployment_service", make_service)
+    seen = _record_round_handler(monkeypatch)
+    asm = assemble(store, FactoryOptions(switches=("agent",), agent_backend="vllm"),
+                   env=_hosts(tmp_path, "gpu-1: gpu-181\n"))
+    try:
+        runtime = seen["round"]["client_factory"].__self__
+        with seen["round"]["deployment_service"]("agent-round-m") as svc:
+            assert svc.backend_factory("zengen-v1", None) == ("罐头", "zengen-v1", None)
+            res = runtime._backends(_opponent_info())
+            assert res.backends["opp"].respond(None, None, [], "opp")[0] == "服务基座"
+            res.close()
+        assert order == [("enter", "agent-round-m"), ("exit", "agent-round-m")]
+        assert len(rounds) == 1
+    finally:
+        asm.close()
+
+
+class _Echo:
+    """固定一句的模型后端(替身 vLLM 基座):不看人格、情境与历史。"""
+
+    def __init__(self, line):
+        self.line = line
+
+    def respond(self, persona, scenario, history, speaker_slot):
+        return self.line, None
+
+
+def _opponent_info():
+    """一条部署会话(没登记给训练 run)的会话信息:客户端位 client 之外一个对手位 opp。"""
+    from simulator.datamodel import RoleAssignment, RoleBinding, RoleSlot, Scenario
+    from simulator.realtime.resources import SessionInfo
+
+    scenario = Scenario("s1", "bg", [RoleSlot("client", "client"), RoleSlot("opp", "opp")], "c", ["n"], "training")
+    assignment = RoleAssignment("s1", [RoleBinding("client", "pc", "self_play"),
+                                       RoleBinding("opp", "po", "frozen_reference", model_ref="x")], 4)
+    return SessionInfo(scenario, assignment, {}, "client", "sess-model", "deploy-s1-1")

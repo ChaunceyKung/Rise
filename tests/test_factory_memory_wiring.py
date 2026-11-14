@@ -372,7 +372,28 @@ def test_the_stand_in_round_handler_keeps_the_defaults(store, monkeypatch):
         asm.close()
 
 
-def test_the_shared_runtime_waits_for_the_agent_turn_under_vllm(store, monkeypatch):
+def _vllm_env(store, tmp_path):
+    """`--agent-backend vllm` 的装配要选端点、读主机映射:写一个端点与一份主机映射,不连远端。
+    (装配期只造部署服务的工厂,不进上下文,所以没有租约、没有服务。)"""
+    from controlplane.envelope import Envelope, OwnerRef
+    from controlplane.paths import compute_endpoints_file
+
+    store.write_product(compute_endpoints_file(), Envelope(
+        id="cfg-compute-endpoints", type="config", version=1, created_at="2026-11-14T00:00:00Z",
+        created_by=OwnerRef(), status="effective", schema_version=1,
+        payload={"endpoints": [{
+            "endpoint_id": "gpu-1", "work_root": "/srv/rise/work", "roll_root": "/srv/roll",
+            "launch_prefix": [], "base_model_path": "/srv/models/qwen-4b",
+            "heldout_jsonl": "/srv/roll/data/heldout.jsonl", "sft_template": "/srv/roll/configs/sft_lora.yaml",
+            "min_free_host_mem_gib": 12.0, "min_free_disk_gib": 50.0,
+            "poll_seconds": 10.0, "job_timeout_seconds": 3600.0,
+        }]}), "test: endpoints")
+    hosts = tmp_path / "hosts.yaml"
+    hosts.write_text("gpu-1: gpu-181\n", encoding="utf-8")
+    return {"RISE_COMPUTE_HOSTS": str(hosts)}
+
+
+def test_the_shared_runtime_waits_for_the_agent_turn_under_vllm(store, monkeypatch, tmp_path):
     """用 MemoryWiring 形状的替身冒充 Starling 后端(不起服务):等提交上限取 agent_deploy_turn_s。"""
     import factory.handlers as fh
     from factory.memory_budget import BASE_LAYERS
@@ -383,9 +404,13 @@ def test_the_shared_runtime_waits_for_the_agent_turn_under_vllm(store, monkeypat
     fake = MemoryWiring(backend="starling", deployment=real.deployment, memory_resolver=real.memory_resolver,
                         training_worlds=real.training_worlds, budget=BASE_LAYERS)
     monkeypatch.setattr(wire, "memory_wiring", lambda *a, **kw: fake)
-    asm = assemble(store, FactoryOptions(switches=("agent",), agent_backend="vllm"), env={})
+    asm = assemble(store, FactoryOptions(switches=("agent",), agent_backend="vllm"),
+                   env=_vllm_env(store, tmp_path))
     try:
         assert seen["round"]["client_factory"].__self__._timeout == BASE_LAYERS.agent_deploy_turn_s == 150.0
+        # 真模型位的流 deadline 每轮取 agent_deploy_per_turn_s(与训练一轮同形),不是部署等提交那一层
+        assert seen["round"]["stream_deadline_s"] == seen["round"]["config"].max_turns * BASE_LAYERS.agent_deploy_per_turn_s
+        assert callable(seen["round"]["deployment_service"])
     finally:
         asm.close()
 

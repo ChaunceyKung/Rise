@@ -14,7 +14,8 @@ import logging
 import math
 import threading
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import fields
 from typing import TYPE_CHECKING
 
@@ -148,6 +149,11 @@ class AgentRuntime:
     没传(None)或会话没登记(MindAgent 部署会话)时,这两种也和过去一样用 ScriptedBackend 说 opponent_lines:
     部署会话的绑定多是 frozen_reference,没有真模型可加载,行为必须原样不变。
 
+    部署对手开关(bind_deployment_opponents,--agent-backend vllm):组合根在部署服务上下文里装上真工厂,退出时卸下。
+    装着时部署会话(没登记给训练 run)的非 scripted 对手位由它造后端,情境剧本不生效;训练会话与显式
+    driver: scripted 的位不受影响(见 _backends)。开关与部署登记表同一把锁(_routes_lock):它由处理器的收尾线程与
+    组合根同时在改,不能取 _lock。
+
     会话登记(register_session / unregister_session):--interact 与 MindAgent 部署共用这一个服务端。登记表按情境 id
     记该情境属于哪个 run,只用来判定新开的会话归谁:工厂造资源时情境 id 已登记,就按 session_id 记一条路由(_session_runs),
     并把"删这条路由"放进资源的 closers。落盘钩子只查 session_id 的路由:登记过的会话把 episode 写进开会话时的那个 run,
@@ -162,7 +168,8 @@ class AgentRuntime:
     状态,驱动器的 wait_closed 要看得见对手位的端口。
 
     锁:_lock 守护训练登记表、通道与服务端的启停(close() 持它停服务端并等在途处理器退出);
-    _routes_lock 守护 _session_runs 与部署登记表 _deployment_rounds,_failures_lock 只守护 episode_write_failures 的追加。
+    _routes_lock 守护 _session_runs、部署登记表 _deployment_rounds 与部署对手开关,
+    _failures_lock 只守护 episode_write_failures 的追加。
     处理器收尾时跑的"删路由"、钩子里的路由查询、部署登记的增删查与失败追加只取各自的小锁、绝不取 _lock,
     否则 close() 持 _lock 等处理器、处理器等 _lock,关停就挂住;close() 不取 _routes_lock。取锁顺序只有一个方向:
     先 _lock 后 _routes_lock(工厂读登记表与记路由在同一次持 _lock 里完成;查部署登记表只取 _routes_lock)。
@@ -212,6 +219,9 @@ class AgentRuntime:
         # 部署 id -> round_id,部署驱动器每次尝试前登记、finally 里注销;同样只由 _routes_lock 守护:
         # 注销跑在驱动器的 finally 里,可能与持 _lock 的 close() 同时发生
         self._deployment_rounds: dict[str, str] = {}
+        # 部署对手开关(bind_deployment_opponents):组合根装上真工厂、退出时卸下。None 即罐头台词。
+        # 同由 _routes_lock 守护:它在处理器的线程上读,装上与卸下在组合根那一侧
+        self._deployment_opponents: Callable[[RoleBinding, Scenario], ModelBackend] | None = None
         # 每条一句描述,只含类名与 id,不含异常文字;只留最近 MAX_WRITE_FAILURES_KEPT 条(最早的先丢)。
         # 追加在钩子(gRPC 处理器线程)里,有自己的小锁:不能取 _lock(见 _on_session_closed)
         self._failures_lock = threading.Lock()
@@ -252,6 +262,23 @@ class AgentRuntime:
         with self._routes_lock:
             self._deployment_rounds.pop(episode_id, None)
 
+    @contextmanager
+    def bind_deployment_opponents(
+        self, factory: Callable[[RoleBinding, Scenario], ModelBackend],
+    ) -> Iterator[None]:
+        """装上部署对手开关:进出之间开的部署会话(没登记给训练 run),非 scripted 的对手位由 factory 造后端。
+
+        装与卸都只取 _routes_lock(同 _deployment_rounds):_backends 跑在服务端的处理器线程上,读它必须与写它
+        互斥;那把锁不可重入、也绝不与 _lock 交叉(见类 docstring)。退出时无条件卸下(体内抛异常也一样),
+        卸下之后回到原来的罐头台词。"""
+        with self._routes_lock:
+            self._deployment_opponents = factory
+        try:
+            yield
+        finally:
+            with self._routes_lock:
+                self._deployment_opponents = None
+
     def _on_session_closed(self, session_id: str, episode: Episode) -> None:
         """服务端的落盘钩子,跑在 gRPC 线程池的线程里。查路由只取 _routes_lock,写失败时往清单追加只取 _failures_lock,
         两处都不取 _lock,写文件在锁外:close() 持 _lock 停服务端并等它停完,钩子若取 _lock 或持锁写文件,两边会互相等。
@@ -289,9 +316,11 @@ class AgentRuntime:
         会让每一轮部署都失败。训练路:
         scripted 驱动:ScriptedBackend(loop=True),台词取情境剧本里该角色位的一份,没有或为空取全局台词;
         其余驱动:交给工厂。
-        其余会话(没传工厂,或没登记):显式 scripted 同上;部署会话(没登记给训练 run)且情境给该角色位带了非空剧本
-        (D11)—— ScriptedBackend(loop=True),台词取该角色位的剧本,绑定不必写 driver: scripted;此外一律是原来的
-        ScriptedBackend(不循环,全局台词)。两路都不碰工厂、不调 driver_for。训练会话不看情境剧本。
+        其余会话(没传工厂,或没登记):显式 scripted 同上;部署会话(没登记给训练 run)且装了部署对手开关
+        (bind_deployment_opponents)时由开关给的后端说话,--agent-backend vllm 下就是服务上的基座,剧本不生效;
+        没装开关时,情境给该角色位带了非空剧本(D11)—— ScriptedBackend(loop=True),台词取该角色位的剧本,
+        绑定不必写 driver: scripted;此外一律是原来的 ScriptedBackend(不循环,全局台词)。这些路都不碰训练工厂、
+        不调 driver_for。训练会话不看情境剧本,也不看部署开关。
 
         上面得到的只是底座。每个对手位的底座都再包成带记忆的 SimpleActio 实例(memory_role_backend):每个位一个各自的
         记忆端口,holder 是该位绑定的人格 id,情境对话方取自绑定表(槽位 -> 角色卡 id)。对话台词不变,每轮多一份
@@ -326,18 +355,22 @@ class AgentRuntime:
                 self._session_runs.pop(info.session_id, None)
 
         judged = run_id is not None and self._opponent_backend_factory is not None
-        worlds = self._training_worlds if run_id is not None else None
-        deploy = self._deployment_store if run_id is None else None
+        deployment_session = run_id is None
+        worlds = self._training_worlds if not deployment_session else None
+        deploy = self._deployment_store if deployment_session else None
         episode_id = info.episode_id
-        if deploy is not None:
-            with self._routes_lock:
+        opponents = None      # 部署对手开关:训练会话不看它
+        if deployment_session:
+            with self._routes_lock:          # 开关与部署登记表同一把锁:一次读齐
+                opponents = self._deployment_opponents
                 round_id = self._deployment_rounds.get(info.episode_id)
-            if round_id is None:
-                logger.warning("deployment session %s has no registered round; opponents get an empty memory",
-                               info.episode_id)
-                deploy = None
-            else:
-                episode_id = f"{round_id}/{info.episode_id}"
+            if deploy is not None:
+                if round_id is None:
+                    logger.warning("deployment session %s has no registered round; opponents get an empty memory",
+                                   info.episode_id)
+                    deploy = None
+                else:
+                    episode_id = f"{round_id}/{info.episode_id}"
         interlocutors = {b.slot_id: b.persona_id for b in assignment.bindings}
         backends: dict[str, MemoryTranslatingBackend] = {}
         orphans: list[object] = []     # 端口已开、还没包成后端就失败的:收尾时同样要关
@@ -351,10 +384,14 @@ class AgentRuntime:
                     base = ScriptedBackend({slot: list(lines)}, loop=True)
                 elif judged:
                     base = self._opponent_backend_factory(binding, scenario)
+                elif opponents is not None:
+                    # 部署对手开关(--agent-backend vllm):这个位由服务上的基座说话,情境剧本不生效。
+                    # 判定只认"是不是部署会话",不看部署登记表:查不到轮次 id 的会话同样不给剧本
+                    base = opponents(binding, scenario)
                 else:
                     # 部署会话(D11):情境给该角色位带了非空剧本就按剧本循环回复,绑定不必写 driver: scripted;
                     # 没有剧本(没有这个键或空列表)仍是全局台词、不循环。训练会话不看情境剧本。
-                    script = scenario.opponent_script.get(slot) if run_id is None else None
+                    script = scenario.opponent_script.get(slot) if deployment_session else None
                     base = (ScriptedBackend({slot: list(script)}, loop=True) if script
                             else ScriptedBackend({slot: list(self._lines)}))
                 if worlds is not None:
