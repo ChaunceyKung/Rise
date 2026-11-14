@@ -289,8 +289,9 @@ class AgentRuntime:
         会让每一轮部署都失败。训练路:
         scripted 驱动:ScriptedBackend(loop=True),台词取情境剧本里该角色位的一份,没有或为空取全局台词;
         其余驱动:交给工厂。
-        其余会话(没传工厂,或没登记):显式 scripted 同上,别的一律是原来的 ScriptedBackend(不循环,全局台词),
-        不碰工厂、不调 driver_for。
+        其余会话(没传工厂,或没登记):显式 scripted 同上;部署会话(没登记给训练 run)且情境给该角色位带了非空剧本
+        (D11)—— ScriptedBackend(loop=True),台词取该角色位的剧本,绑定不必写 driver: scripted;此外一律是原来的
+        ScriptedBackend(不循环,全局台词)。两路都不碰工厂、不调 driver_for。训练会话不看情境剧本。
 
         上面得到的只是底座。每个对手位的底座都再包成带记忆的 SimpleActio 实例(memory_role_backend):每个位一个各自的
         记忆端口,holder 是该位绑定的人格 id,情境对话方取自绑定表(槽位 -> 角色卡 id)。对话台词不变,每轮多一份
@@ -351,7 +352,11 @@ class AgentRuntime:
                 elif judged:
                     base = self._opponent_backend_factory(binding, scenario)
                 else:
-                    base = ScriptedBackend({slot: list(self._lines)})
+                    # 部署会话(D11):情境给该角色位带了非空剧本就按剧本循环回复,绑定不必写 driver: scripted;
+                    # 没有剧本(没有这个键或空列表)仍是全局台词、不循环。训练会话不看情境剧本。
+                    script = scenario.opponent_script.get(slot) if run_id is None else None
+                    base = (ScriptedBackend({slot: list(script)}, loop=True) if script
+                            else ScriptedBackend({slot: list(self._lines)}))
                 if worlds is not None:
                     memory = worlds.join_rollout(info.episode_id, binding.persona_id)
                 elif deploy is not None:

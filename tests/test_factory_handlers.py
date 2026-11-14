@@ -351,8 +351,9 @@ def test_a_scripted_driver_falls_back_to_the_global_lines_when_the_slot_has_no_s
     assert _says(backends["b"], "b", 3) == ["全局甲", "全局乙", "全局甲"]
 
 
-def test_without_a_factory_every_opponent_is_the_same_unlooped_scripted_backend_as_before(store):
-    """MindAgent 部署会话的绑定多是 frozen_reference:没传工厂时一个字不能变,剧本也不能偷偷生效。"""
+def test_without_a_factory_every_opponent_is_the_same_unlooped_scripted_backend_unless_the_scenario_scripts_the_slot(store):
+    """MindAgent 部署会话的绑定多是 frozen_reference:没传工厂时,情境没给该位的位一个字不能变(不循环、念全局台词);
+    情境给该位带了剧本的 b 按剧本循环回复(D11:罐头模式下部署对手位读情境剧本)。"""
     from simulator.datamodel import RoleBinding
     runtime = AgentRuntime(store, ("全局甲", "全局乙"))
     bindings = [RoleBinding("a", "p", "self_play"),
@@ -362,7 +363,8 @@ def test_without_a_factory_every_opponent_is_the_same_unlooped_scripted_backend_
     assert set(backends) == {"b", "c"}
     for slot in ("b", "c"):
         assert isinstance(backends[slot].instance.backend.inner, ScriptedBackend)
-        assert _says(backends[slot], slot, 3) == ["全局甲", "全局乙", "(无更多发言)"]
+    assert _says(backends["b"], "b", 3) == ["剧本"] * 3                        # 情境给了剧本,循环
+    assert _says(backends["c"], "c", 3) == ["全局甲", "全局乙", "(无更多发言)"]   # 情境没给 c 剧本,仍是全局台词
 
 
 def test_every_call_builds_fresh_backends(store):
@@ -409,7 +411,8 @@ def test_a_factory_error_surfaces_instead_of_being_swallowed(store):
 
 def test_without_a_factory_the_legacy_path_does_not_judge_the_binding_at_all(store):
     """MindAgent 的 agent.yaml 不校验 model_backend 的取值,非客户端位也可能是 self_play:
-    没传工厂又不是剧本驱动时,和过去一样给罐头后端,不能因为驱动判定抛 ValueError。"""
+    没传工厂又不是剧本驱动时,和过去一样给罐头后端,不能因为驱动判定抛 ValueError。
+    情境给该位带了剧本的 b 按剧本循环(D11);c 情境没给剧本,仍是全局台词、不循环。"""
     from simulator.datamodel import RoleBinding
     runtime = AgentRuntime(store, ("全局甲", "全局乙"))
     bindings = [RoleBinding("a", "p", "self_play"),
@@ -417,8 +420,8 @@ def test_without_a_factory_the_legacy_path_does_not_judge_the_binding_at_all(sto
                 RoleBinding("c", "p", "scripted_user", model_ref="x")]
     backends = _backends_of(runtime, _scenario_with({"b": ["剧本"]}), _assignment(*bindings), {}, "a")
     assert set(backends) == {"b", "c"}
-    for slot in ("b", "c"):
-        assert _says(backends[slot], slot, 3) == ["全局甲", "全局乙", "(无更多发言)"]
+    assert _says(backends["b"], "b", 3) == ["剧本"] * 3
+    assert _says(backends["c"], "c", 3) == ["全局甲", "全局乙", "(无更多发言)"]
 
 
 def _never_called(binding, scenario):
@@ -428,14 +431,15 @@ def _never_called(binding, scenario):
 @pytest.mark.parametrize("backend", ["self_play", "scripted_user", "magic"])
 def test_with_the_factory_set_an_unregistered_session_never_judges_its_bindings(store, backend):
     """Ruling 28:--interact 下运行时的工厂一直是 OpponentSwitch,部署会话(没登记)仍按 Ruling 15 不判绑定:
-    agent.yaml 不校验 model_backend,self_play 或未知后端名的非客户端位不能让部署轮次整轮失败。"""
+    agent.yaml 不校验 model_backend,self_play 或未知后端名的非客户端位不能让部署轮次整轮失败。
+    但情境给该位带了剧本时,罐头后端按剧本循环回复(D11)。"""
     from simulator.datamodel import RoleBinding
     runtime = AgentRuntime(store, ("全局甲", "全局乙"), opponent_backend_factory=_never_called)
     bindings = [RoleBinding("a", "p", "self_play"),
                 RoleBinding("b", "p", backend, model_ref=None if backend == "self_play" else "x")]
     backends = _backends_of(runtime, _scenario_with({"b": ["剧本"]}), _assignment(*bindings), {}, "a")
     assert set(backends) == {"b"} and isinstance(backends["b"].instance.backend.inner, ScriptedBackend)
-    assert _says(backends["b"], "b", 3) == ["全局甲", "全局乙", "(无更多发言)"]     # 不循环,剧本也不生效
+    assert _says(backends["b"], "b", 3) == ["剧本"] * 3          # 不判绑定、不调工厂,情境剧本照样循环
 
 
 def test_with_the_factory_set_an_unregistered_scripted_binding_still_loops_its_script(store):
@@ -641,6 +645,52 @@ def _three_slots():
     return _assignment(RoleBinding("a", "pa", "self_play"),
                        RoleBinding("b", "pb", "frozen_reference", model_ref="x"),
                        RoleBinding("c", "pc", "frozen_reference", model_ref="x"))
+
+
+def _deploy_runtime(store, tmp_path):
+    """部署会话用的运行时(与本节其余部署用例同一夹具写法):记忆开在一份 FileTupleStore 里,这一条 episode 已登记。"""
+    from simple_actio.memory import FileTupleStore
+    deploy = FileTupleStore(tmp_path / "deploy", held_root=tmp_path / "held", replay_root=tmp_path / "replay")
+    runtime = AgentRuntime(store, ("嗯",), deployment_store=deploy)
+    runtime.register_deployment_episode("deploy-m-s1-1", "agent-round-m")
+    return runtime, deploy
+
+
+def test_a_canned_deployment_opponent_follows_the_scenario_script(store, tmp_path):
+    """罐头模式(D11):绑定没写 driver: scripted,但情境给该位带了剧本 -> 按剧本循环回复;
+    情境没给剧本的 c 仍念全局台词,不循环。"""
+    runtime, _ = _deploy_runtime(store, tmp_path)
+    res = runtime._backends(_slot_info(_scenario_with({"b": ["一", "二"]}), _three_slots(),
+                                       episode_id="deploy-m-s1-1"))
+    assert _says(res.backends["b"], "b", 3) == ["一", "二", "一"]
+    assert _says(res.backends["c"], "c", 2) == ["嗯", "(无更多发言)"]
+    res.close()
+
+
+@pytest.mark.parametrize("script", [None, {}, {"b": []}, {"c": ["别人的"]}])
+def test_a_canned_deployment_opponent_without_its_script_keeps_the_global_lines(store, tmp_path, script):
+    """情境没有给这个位非空剧本(没有这个键、空列表、只给了别的位)时,与今天一致:念全局台词、不循环。"""
+    runtime, _ = _deploy_runtime(store, tmp_path)
+    res = runtime._backends(_slot_info(_scenario_with(script), _three_slots(), episode_id="deploy-m-s1-1"))
+    assert _says(res.backends["b"], "b", 1) == ["嗯"]
+    res.close()
+
+
+def test_training_sessions_still_ignore_the_scenario_script_without_a_scripted_driver(store):
+    """训练会话不变:绑定没写 driver: scripted 就交给对手工厂,情境里的剧本不生效。"""
+    made = []
+
+    def factory(binding, scenario):
+        made.append(binding.slot_id)
+        return ScriptedBackend({binding.slot_id: [f"来自工厂-{binding.slot_id}"]})
+
+    runtime = AgentRuntime(store, ("嗯",), opponent_backend_factory=factory)
+    runtime.register_session("s1", "run-1")
+    res = runtime._backends(_slot_info(_scenario_with({"b": ["剧本乙"], "c": ["剧本丙"]}), _three_slots()))
+    assert sorted(made) == ["b", "c"]
+    assert _says(res.backends["b"], "b", 1) == ["来自工厂-b"]
+    assert _says(res.backends["c"], "c", 1) == ["来自工厂-c"]
+    res.close()
 
 
 def test_a_registered_deployment_session_opens_opponents_in_the_scenario_world(store, tmp_path):
