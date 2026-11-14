@@ -3,13 +3,13 @@
 | 项 | 内容 |
 |---|---|
 | 一句话 | 新模型晋级后,部署 SimpleActio 实例采集经验,分析行为缺口,生成并验证技能提案,经审核门②收录进正式库 |
-| 状态 | 部分落地:配置、库读取、失败守卫、部署、分析、提案、验证、打包、轮次与收录两个处理器、调和循环触发与组合根装配 [已落地],已由 `factory run --enable agent,admit` 经 `reconcile_once` 端到端跑通;闭环里的部署后端缺省是罐头实现(`factory.agent.CannedGuidedBackend`,不加载 checkpoint),罐头路径的轮次产物不记后端来源 [已落地];真模型部署后端由 `--agent-backend vllm` 打开,一个轮次起一个只挂基座的 vLLM 服务,智能体位与对手位都由它说话,轮次产物记 `deployment_backend` [计划中];部署记忆(经部署记忆管理面访问,配了记忆配置用 Starling,否则用落盘替身)、部署实例按 episode 新造、门② 的记忆收录改路 [已落地];记忆按一个情境一个部署世界组织、人格是其中的主体 [已落地];接 Starling 记忆服务 [已落地]:快照按 id、在途记录取代快照文件与旁注、验证从快照分叉只读重放世界、放弃事件带主体 |
+| 状态 | 部分落地:配置、库读取、失败守卫、部署、分析、提案、验证、打包、轮次与收录两个处理器、调和循环触发与组合根装配 [已落地],已由 `factory run --enable agent,admit` 经 `reconcile_once` 端到端跑通;闭环里的部署后端缺省是罐头实现(`factory.agent.CannedGuidedBackend`,不加载 checkpoint),罐头路径的轮次产物不记后端来源 [已落地];真模型部署后端由 `--agent-backend vllm` 打开,一个轮次起一个只挂基座的 vLLM 服务,智能体位与对手位都由它说话 [已落地],轮次产物记 `deployment_backend` [计划中];部署记忆(经部署记忆管理面访问,配了记忆配置用 Starling,否则用落盘替身)、部署实例按 episode 新造、门② 的记忆收录改路 [已落地];记忆按一个情境一个部署世界组织、人格是其中的主体 [已落地];接 Starling 记忆服务 [已落地]:快照按 id、在途记录取代快照文件与旁注、验证从快照分叉只读重放世界、放弃事件带主体 |
 | 所在层 | 计算层 |
 | 代码位置 | `src/mindagent` [已落地] |
 | 基线提交 | `b826440`(2026-10-21) |
 | 依赖 | ControlPlane(`controlplane`)、SimpleActio(`simple_actio`,含记忆端口、管理面与 Starling 适配器)、外部推理桥接(`inference_bridge`)、SocialSimulator(`simulator` 的数据模型、产物读写、实时环境服务客户端) |
 | 被依赖 | factory 组合根(注册两个处理器);调和循环经注入调用处理器;命令行读提案载荷 |
-| 对应实施计划 | 工作包 7(任务 80 至 89)与工作包 8、9 的触发与装配 [已落地];智能体记忆设计的第 5 步(部署记忆、轮次摘要、快照重放、门② 改路,替身路径)[已落地];Starling 部署管理面:第 7 步 [已落地];记忆按情境世界组织的 MindAgent 部分:世界布局、部署轮次按世界、门② 增量带 `scenario_id` [已落地];接 Starling 记忆服务的 MindAgent 部分:第 1 步放弃带主体,第 2 步快照 id、在途记录、`fork_replay`、删 `scratch_store_factory` [已落地] |
+| 对应实施计划 | 工作包 7(任务 80 至 89)与工作包 8、9 的触发与装配 [已落地];智能体记忆设计的第 5 步(部署记忆、轮次摘要、快照重放、门② 改路,替身路径)[已落地];Starling 部署管理面:第 7 步 [已落地];记忆按情境世界组织的 MindAgent 部分:世界布局、部署轮次按世界、门② 增量带 `scenario_id` [已落地];接 Starling 记忆服务的 MindAgent 部分:第 1 步放弃带主体,第 2 步快照 id、在途记录、`fork_replay`、删 `scratch_store_factory` [已落地];场景三真模型部署:任务 1 至 8 [已落地] |
 
 ## 0. 系统速览
 
@@ -23,7 +23,7 @@
 | ControlPlane | 协调层:git 版本化产物树、状态机、调和循环、三个审核门 | 控制层 | [已落地] |
 | SocialSimulator | 情境与人格生成、多智能体仿真、实时环境服务、诊断评测 | 计算层 | [已落地];诊断默认用 mock 后端,`--evaluator someval` 装配 vLLM 加 SoMEval 的真实运行器 [已落地],真机只验证到预测阶段 |
 | MindTrainer | 权重级训练:BatchTrain(SFT 后接 GRPO 加 OPD)与 InteractTrain | 计算层 | [已落地],默认入口的训练执行器是 mock;ROLL LoRA SFT 真实执行器 [已落地],由 `--executor roll` 装配,已在真实主机上端到端跑通一次 |
-| MindAgent | 部署态智能体的技能与记忆自进化,不改权重 | 计算层 | [已落地],闭环里经 `--enable agent` 装配;部署驱动缺省仍用罐头后端;真模型部署后端由 `--agent-backend vllm` 打开,两个角色位经 vLLM 由基座说话 [计划中] |
+| MindAgent | 部署态智能体的技能与记忆自进化,不改权重 | 计算层 | [已落地],闭环里经 `--enable agent` 装配;部署驱动缺省仍用罐头后端;真模型部署后端由 `--agent-backend vllm` 打开,两个角色位经 vLLM 由基座说话 [已落地] |
 | RecipeStore | 验证有效的训练配方的版本化仓库 | 控制层 | [已落地] |
 | TrainScheduler | 决策执行器:装配上下文、校验决策、构造训练指令、提名配方 | 控制层 | [已落地],含策略经验(默认关) |
 | TrainPlanner | 决策学习者:经可插拔后端给出下一轮训练决策 | 控制层 | [已落地],默认后端经桥接调用命令行模型 |
@@ -148,7 +148,7 @@ MindAgent 是 AgentRSI 路径的执行者:不改权重,只让技能库与记忆�
 | 反向隔离 | `controlplane` 不导入 `mindagent` | 处理器类型写成字面 `Callable`,不引用调和循环的别名 |
 | 产物读写 | 一律经 `GitStore` 与信封 | 写入内容不变时不提交,重入可用 HEAD 不变来判定空操作 |
 | 不碰凭证 | 桥接只经注入对象调用 | 测试一律用脚本化桥接 |
-| 脱离真实环境可测 | 无 GPU、无外网、无真实模型 | gRPC 用 loopback 服务端,模型后端用罐头实现;真模型部署后端的测试用替身服务 [计划中] |
+| 脱离真实环境可测 | 无 GPU、无外网、无真实模型 | gRPC 用 loopback 服务端,模型后端用罐头实现;真模型部署后端的测试用替身服务 [已落地] |
 
 ## 3. 架构
 
@@ -363,9 +363,10 @@ deployment_backend:
 def make_start_round_handler(*, config: AgentConfig, client_factory, backend_factory, personas_loader,
                              memory_store, memory_layout, memory_runtime,
                              bridge=None, stream_deadline_s=None,
-                             register_episode=..., unregister_episode=...) -> Callable[[GitStore, Action], None]: ...
+                             register_episode=..., unregister_episode=...,
+                             deployment_service=None) -> Callable[[GitStore, Action], None]: ...
 # backend_factory(model_id, checkpoint_ref) -> 新的模型后端
-# [计划中] 另收一个可选参数:部署服务上下文的工厂,由组合根注入,名字由施工定
+# deployment_service(round_id) -> 部署服务上下文;组合根在 --agent-backend vllm 时注入,None 即罐头路径
 # personas_loader(store, persona_ids) -> {persona_id: Persona}
 
 # mindagent.admit —— 同样先调工厂,再注册为 admit_proposal 的处理器;memory_store 与 memory_layout 和轮次处理器共用同一份
@@ -380,14 +381,14 @@ def make_admit_proposal_handler(*, memory_store, memory_layout,
 
 验证重放从这个情境的验证快照分叉一个可回收的重放世界,以 `open_replay(重放世界名, 智能体位人格)` 开只读端口,收尾时 `release_replay` [已落地]。
 
-`backend_factory` 按部署后端分两种 [计划中]。部署与离线重放验证都只经它取后端,换掉它两处一起换。标 [计划中] 的部分来自设计,施工时可能微调。
+`backend_factory` 按部署后端分两种 [已落地]。部署与离线重放验证都只经它取后端,换掉它两处一起换。
 
 | 部署后端 | `backend_factory` 每次调用返回 | 状态 |
 |---|---|---|
-| `canned`(缺省) | 每次一个新的 `CannedGuidedBackend`,把技能指导语拼成一句话,不调模型;对手位按情境剧本回复,情境没带剧本念全局台词(剧本优先 [计划中]) | [已落地] |
-| `vllm` | 每次一个新的 `VllmPolicy`,都绑到本轮部署服务的同一个 `BASE_MODEL_NAME`;`checkpoint_ref` 不参与选择 | [计划中] |
+| `canned`(缺省) | 每次一个新的 `CannedGuidedBackend`,把技能指导语拼成一句话,不调模型;对手位按情境剧本回复,情境没带剧本念全局台词(剧本优先 [已落地]) | [已落地] |
+| `vllm` | 每次一个新的 `VllmPolicy`,都绑到本轮部署服务的同一个 `BASE_MODEL_NAME`;`checkpoint_ref` 不参与选择 | [已落地] |
 
-`vllm` 下的后端只在本轮的部署服务上下文里有效 [计划中]。组合根造部署服务上下文的工厂,经 `make_start_round_handler` 多出的一个可选参数注入轮次处理器;不传时等于罐头路径。本包不导入 `compute`,只把它当上下文管理器用:轮次真跑部署时进入,处理器返回或抛出时退出。SimpleActio 实例只调后端的 `respond_guided`,返回 `(发言, 内心独白)` 二元组,两种后端都满足。`VllmPolicy` 一次发言一次 POST,不重试,重试与分类是驱动器的事。
+`vllm` 下的后端只在本轮的部署服务上下文里有效 [已落地]。组合根的 `factory.agent_backend.make_deployment_service` 造上下文工厂,经 `make_start_round_handler` 的 `deployment_service` 参数注入轮次处理器;不传时等于罐头路径。本包不导入 `compute`,只把它当上下文管理器用:轮次真跑部署时进入,处理器返回或抛出时退出。上下文交出的 `backend_factory(model_id, checkpoint_ref)` 外面套一层 `TranslatingAgentBackend`,把 `factory.opponents` 的 HTTP 异常换成 `simple_actio.backend_errors` 的四个异常。SimpleActio 实例只调后端的 `respond_guided`,返回 `(发言, 内心独白)` 二元组,两种后端都满足。`VllmPolicy` 一次发言一次 POST,不重试,重试与分类是驱动器的事。
 
 部署驱动器收实例工厂与部署记忆管理面,不收现成的实例:
 
@@ -484,7 +485,7 @@ def load_library(store) -> LibraryState: ...
 | 外部推理桥接 | `complete(prompt, *, run_id, task_id)`、`BridgeError` 带 `category` 与 `attempts`、每次成功调用记一条成本 [已落地] | 传入非空 `run_id`;每次尝试用不同 `task_id` |
 | factory 组合根 | 注入配置、客户端工厂、模型后端工厂、人格加载器、可选桥接 [已落地];读树外记忆配置,把部署记忆管理面交给本包:配置在场用 StarlingDeploymentStore(根目录是配置里的 `root`),不在场用 FileTupleStore,根目录是 `<git 目录>/rise-memory`(与 `rise.lock` 同处,不入树、跨重启保留;不用临时目录,每次重启换空库会让崩溃重入与门② 收录失效);部署会话的时间预算随配置在场与否取值 | 按名字 `mindagent.rounds.make_start_round_handler` 取工厂 [已落地];启动时 `memory_library/` 必须为空 |
 | factory 组合根(部署世界)[已落地] | 只造一个部署记忆管理面,交给两个处理器与服务端的 `AgentRuntime`(可选参数 `deployment_store`,只在启用部署轮次时传);`AgentRuntime` 持部署登记表,经 `register_deployment_episode` 与 `unregister_deployment_episode` 接到驱动器的两个回调;记忆根是旧布局、或部署配置里同一人格占两个角色位时拒绝启动(`FactoryConfigError`,退出码 2) | 无新增 |
-| factory 组合根(部署后端)[计划中] | `--agent-backend vllm` 时造部署服务上下文的工厂,经处理器工厂的可选参数注入,连同它给的 `backend_factory`;服务端的部署对手位在上下文里一律由同一服务上的基座说话,忽略绑定的 `model_backend` 与 `model_ref`,只有显式 `driver: scripted` 的绑定仍念台词 | 轮次处理器只在真跑部署时进入上下文,返回或抛出时退出;`pending` 轮次比较 `deployment_backend` |
+| factory 组合根(部署后端)[已落地]:`--agent-backend vllm` 时造部署服务上下文的工厂,经处理器工厂的可选参数注入,连同它给的 `backend_factory`;服务端的部署对手位在上下文里一律由同一服务上的基座说话,忽略绑定的 `model_backend` 与 `model_ref`,只有显式 `driver: scripted` 的绑定仍念台词 | 轮次处理器只在真跑部署时进入上下文,返回或抛出时退出 [已落地];`pending` 轮次比较 `deployment_backend` [计划中] |
 | 命令行 | 无 | 上表的提案载荷键 |
 
 ## 6. 关键流程
@@ -548,15 +549,15 @@ def load_library(store) -> LibraryState: ...
 | 7 | 筛选并打包 | 按阈值筛选,通过的写 `pending_review` 提案 | 被筛掉的记进 `dropped` |
 | 8 | 轮次 executed | 写 `episode_ids`、`findings`、`proposals`、`dropped`,置 `executed`;处理器返回时放世界锁(验证快照在第 6 步结束时已删) | 终态 |
 
-**部署服务上下文** [计划中]:`--agent-backend vllm` 时,一个部署轮次起一个 vLLM 服务,智能体位与对手位共用。它插在上表第 4 步之后、第 5 步之前,到第 8 步或任一失败出口为止。
+**部署服务上下文** [已落地]:`--agent-backend vllm` 时,一个部署轮次起一个 vLLM 服务,智能体位与对手位共用。它插在上表第 4 步之后、第 5 步之前,到第 8 步或任一失败出口为止。
 
 | 时刻 | 动作 | 失败时 |
 |---|---|---|
-| 第 4 步写 `pending` 之前 | 重入的 `pending` 轮次比较记下的 `deployment_backend` 与本次装配,比整份字典:换了端点或基座路径也算不同。只在 `episode_digests` 非空时比较 | 不同且已有提交过的 episode:轮次 T3,原因 `deployment backend changed`;一条都没提交过:按本次后端重写载荷,照常跑 |
-| 第 4 步写 `pending` 之后、第 5 步的输入检查通过之后 | 进入组合根注入的上下文:组合根一侧经 `compute.service.serve` 取整机 GPU 租约,以端点的 `base_model_path`、空适配器表、一个固定远端端口起服务,开隧道、等就绪。作业身份带上轮次 id(`env` 里加一项,或等价做法),否则同一端点同一配置每跑一轮就永久占掉一个 `serve-*` 尝试序号,第 9 轮起无限延后;端口由端点配置给,不等于 `DEFAULT_SERVE_PORT`(18081) | 租约被占、服务起不来、隧道开不了:`DeferredError`,轮次留 `pending` |
-| 进入之后 | 本轮 `backend_factory` 每次返回绑到同一服务基座的新 `VllmPolicy`;本轮登记的部署会话,对手位也由这个服务的基座说话,不按 `model_ref` 选适配器 | 服务配置不可用(确定性 `ComputeError`:`serve` 的内存或卡数检查、`VllmServeConfig` 校验失败):轮次 T3,原因只写异常类名 |
+| 第 4 步写 `pending` 之前 | 重入的 `pending` 轮次比较记下的 `deployment_backend` 与本次装配,比整份字典:换了端点或基座路径也算不同。只在 `episode_digests` 非空时比较 [计划中] | 不同且已有提交过的 episode:轮次 T3,原因 `deployment backend changed`;一条都没提交过:按本次后端重写载荷,照常跑 [计划中] |
+| 第 4 步写 `pending` 之后、第 5 步的输入检查通过之后 | 进入组合根注入的上下文:组合根一侧经 `compute.service.serve` 取整机 GPU 租约,以端点的 `base_model_path`、空适配器表、固定远端端口 `AGENT_SERVE_PORT`(18083)起服务,开隧道、等就绪。作业的 `env` 多一项 `RISE_AGENT_ROUND=<round_id>`,它并进作业 digest,于是每轮作业名不同;不加则同一端点同一配置每跑一轮就永久占掉一个 `serve-*` 尝试序号,第 9 轮起无限延后。端口不等于 `DEFAULT_SERVE_PORT`(18081) | 租约被占、服务起不来、隧道开不了:是 `DeferredError`,轮次留 `pending` |
+| 进入之后 | 本轮 `backend_factory` 每次返回绑到同一服务基座的新 `VllmPolicy`;本轮登记的部署会话,对手位也由这个服务的基座说话,不按 `model_ref` 选适配器 | 服务配置不可用(确定性 `ComputeError`:`serve` 的内存或卡数检查、`VllmServeConfig` 校验失败):改抛 `SimpleActioDataError`,轮次 T3,原因只写异常类名 |
 | 第 5、6 步 | 部署 episode 与离线重放验证都在上下文里跑完。验证段的指标只看路由(`decide` 在调后端之前算),重新生成的话语不进任何判据,所以真模型下这一段花的调用不改变度量 | 智能体位调用失败的去向见第 8 章 |
-| 处理器返回或抛出 | 退出上下文:关隧道、停服务、放租约 | 停服务时作业还在跑:不放租约,抛 `ServeStopError`;有在途异常时那个异常优先,`ServeStopError` 的类名与作业 id 补进轮次失败原因。轮次 T3,原因点名哪个作业在远端占着整机,要人去停——服务不会自己退出,租约也就不会自己松开 |
+| 处理器返回或抛出 | 退出上下文:关隧道、停服务、放租约 [已落地] | 停服务时作业还在跑 [计划中]:不放租约,抛 `ServeStopError`;有在途异常时那个异常优先,`ServeStopError` 的类名与作业 id 补进轮次失败原因。轮次 T3,原因点名哪个作业在远端占着整机,要人去停——服务不会自己退出,租约也就不会自己松开 |
 
 上下文只在真跑部署时进入。已终态、被取代、模型不合法、读库失败、拿不到世界锁、输入缺失,这些出口都不起服务、不取租约。理由:起服务要几分钟加载基座,整机租约还挡着训练与评测。罐头路径没有这一步,行为与今天逐字节相同。
 
@@ -640,7 +641,7 @@ join 等不到时,服务端把资源移进滞留表,由回收线程过后再关�
 | `max_turns`、`goal_reached` | 接受,落盘 |
 | `timeout`、`role_backend_timeout`、`role_backend_unavailable`(准入满,或逻辑 episode id 撞上活动会话)、`role_memory_unavailable`、`persistence_failed`、传输层 `UNAVAILABLE` | T1:整条重跑,至多 `max_retries_per_episode` 次,重跑前先回滚部署世界;用尽后轮次保持 `pending` 并上抛。创建会话被拒为 `role_backend_unavailable` 时,先在同一次尝试里退避重建(总等待 65 秒,不计入重试次数),仍被拒再按本行处理 |
 | `invalid_session`、`role_backend_rejected`、`role_backend_failure`、`client_disconnected`、其他状态码、协议错乱;加上 `role_memory_failure` | 不重跑,轮次 `failed`(T3);部署路沿用轮次的 T3 口径,与训练侧指令判 T2 不冲突 |
-| 智能体位的 vLLM 调用失败 [计划中]:组合根给智能体位后端套一层转换,把 `OpponentTimeoutError`、`OpponentUnavailableError`、`OpponentRejectedError`、其余 `OpponentApiError` 依次换成 `simple_actio` 里的四种后端失败异常(名字由施工定),本包只认这四种,不导入 `factory` | 先 `abort()` 会话,归成本条的一次失败尝试,终止原因依次是 `role_backend_timeout`、`role_backend_unavailable`、`role_backend_rejected`、`role_backend_failure`,再按上面两行处理:前两个回滚重跑,用尽后上抛;被拒不重跑、轮次 T3;形状不对或为空算本条的一次失败尝试,回滚重跑,用尽后才 T3 |
+| 智能体位的 vLLM 调用失败 [已落地]:组合根给智能体位后端套一层 `TranslatingAgentBackend`,把 `OpponentTimeoutError`、`OpponentUnavailableError`、`OpponentRejectedError`、其余 `OpponentApiError` 依次换成 `AgentBackendTimeout`、`AgentBackendUnavailable`、`AgentBackendRejected`、`AgentBackendMalformed` 四个异常,本包只认它们,不导入 `factory` | 先 `abort()` 会话,归成本条的一次失败尝试,终止原因依次是 `role_backend_timeout`、`role_backend_unavailable`、`role_backend_rejected`、`role_backend_failure`,再按上面两行处理:前两个回滚重跑,用尽后上抛;被拒不重跑、轮次 T3;形状不对或为空今天按 `AgentBackendMalformed` 直接 T3,不重跑。设计里的空回复有界重跑 [计划中] 还没实现 |
 | SimpleActio 实例自身抛异常(MemoryFailureError 与上一行除外) | 先 `abort()` 会话,原异常原样上抛,不重跑、不包装;到了轮次处理器,`SimpleActioDataError` 与 `MindAgentDataError` 一族收成轮次 `failed`(T3),其余异常上抛,轮次保持 `pending` |
 | 实例抛 MemoryFailureError(`recall`、`embed_pending` 失败,或 `remember` 抛异常) | 先 `abort()` 会话。`transient` 为真:按条回滚重跑,至多 `max_retries_per_episode` 次,用尽后上抛,轮次保持 `pending`。`transient` 为假(含 MemoryEventConflict、MemoryClosedError):不重跑,轮次 `failed`(T3)。`remember` 返回 `failed`(含 `failure_category` 为 `timeout`)只计数、不抛 |
 
@@ -655,14 +656,14 @@ join 等不到时,服务端把资源移进滞留表,由回收线程过后再关�
 
 组合根按配置在场与否传值。整条流的 deadline 按调用方给,经 `client_factory(deadline_s=)` 传:部署驱动器传 `max_turns` × 部署流每轮,训练路的轨迹源传自己的 `max_turns` × 训练流每轮,两个开关同开时各用各的;服务端等提交与后端单次调用各只有一份,同开时取训练位一层与同一个后端上限,部署会话只是多等。
 
-`--agent-backend vllm` 只配 Starling 记忆,时限按真模型另立一组 [计划中]。各层由组合根推出,本包只收 `stream_deadline_s` 等现有参数:
+`--agent-backend vllm` 只配 Starling 记忆,时限按真模型另立一组 [已落地]。各层由组合根推出,本包只收 `stream_deadline_s` 等现有参数:
 
-| 层 | 罐头(Starling) | 真模型 [计划中] |
+| 层 | 罐头(Starling) | 真模型 [已落地] |
 |---|---|---|
 | 智能体位单次 HTTP | 无 | 与训练位策略同值,120 秒 |
 | 对手位单次 HTTP | 无,念台词 | 与对手同值,60 秒 |
-| 服务端等智能体位一次提交 | 一轮记忆最坏加 20 秒 | 智能体位 HTTP 加一轮记忆 |
-| 整条流 deadline 的每轮 | 部署等提交与后端调用的较大者 | 不低于上两层里较长的一层 |
+| 服务端等智能体位一次提交 | 一轮记忆最坏加 20 秒 | 智能体位 HTTP 加一轮记忆,取自 `agent_deploy_turn_s` |
+| 整条流 deadline 的每轮 | 部署等提交与后端调用的较大者 | 不低于上两层里较长的一层,取自 `agent_deploy_per_turn_s` |
 
 **分析器的判定**(第 6 步,[已落地])
 
@@ -773,7 +774,7 @@ join 等不到时,服务端把资源移进滞留表,由回收线程过后再关�
 | 部署 episode 开始时世界里有别的轮次的未提交起点快照 | 抛 `DeferredError`,原因写出那个轮次 id | 人工恢复或删除那份快照;连续延后达上限守护进程带原因退出 |
 | 恢复前服务端端口在等待上限内没关 | `RestoreFailedError`,T3 | 库与快照都保留,等人处理 |
 | 开下一次尝试或提交前服务端端口在等待上限内没关 | `DeferredError`,轮次留 `pending` | 守护进程退避重入,快照在就先恢复 |
-| 部署服务的租约被占或服务起不来 [计划中] | `DeferredError`,轮次留 `pending` | 守护进程退避重入;别的作业放租约后起服务;连续延后达上限时守护进程带原因退出 |
+| 部署服务的租约被占或服务起不来 [已落地] | `DeferredError`,轮次留 `pending` | 守护进程退避重入;别的作业放租约后起服务;连续延后达上限时守护进程带原因退出 |
 | `pending` 轮次的部署后端变了 [计划中] | 轮次 T3,原因 `deployment backend changed` | 要看真模型的结果,晋级一个新模型或用一棵新树 |
 
 **走查例子**
@@ -844,9 +845,9 @@ join 等不到时,服务端把资源移进滞留表,由回收线程过后再关�
 | MA-42 | 恢复收到 `world_busy` 判瞬态、轮次延后;`world_held` 与快照没了、摘要不等判 `RestoreFailedError` [已落地] | 一律判 `RestoreFailedError` | 过期会话还没结束的调用会让服务端在 30 秒内排不干,重入时通常已排干;别的会话持着活句柄是真冲突,要人看 | 服务端一直排不干时轮次反复延后,到守护进程连续延后上限才退出 |
 | MA-43 | 验证重放从验证快照分叉可回收的重放世界,每轮每个情境一个,基线与候选都在它上面经 `open_replay` 只读打开;收尾只关不删;验证不造临时管理面 [已落地] | 每个实例造一个临时管理面再恢复 | rise 不再按路径打开世界;重放实例只调 `recall`、`digest` 与 `close`,在服务端都不算写 | 重放世界在 Starling 第 6 期之前堆在服务的数据目录里 |
 | MA-44 | `wait_closed` 保留,服务端的检查只作兜底 [已落地] | 只靠服务端的 `world_held` | 对手位端口在服务端线程上收尾,最长 60 秒;不等就去恢复,服务端必然回 `world_held` | 进程内计数仍要求组合根只造一个管理面 |
-| MA-45 | `--agent-backend vllm` 时一个部署轮次起一个 vLLM 服务,智能体位与对手位共用;上下文由组合根注入,轮次只在真跑部署时进入,处理器返回或抛出时停服务、放租约 [计划中] | 每条 episode 起一次;守护进程常驻一个服务 | 起服务要几分钟加载基座,按 episode 起会让部署耗时翻几倍。常驻会一直占着整机租约,训练与评测永远排不上 | 一轮里起服务失败就整轮延后;轮次跑多久,租约就占多久,期间训练作业只能等 |
-| MA-46 | 部署服务只挂基座,`backend_factory` 在 `vllm` 下忽略 `checkpoint_ref`,每次返回绑到 `BASE_MODEL_NAME` 的新后端;`checkpoint_ref` 照旧写进轮次产物 [计划中] | 挂被晋级模型的适配器导出 | 先用纯基座跑通部署路;选权重要另接适配器解析与导出校验,不在这一版的范围里 | 部署结果反映的是基座,不是被晋级模型;拿它评估晋级效果会得出错的结论 |
-| MA-47 | 智能体位的 vLLM 调用失败沿用现行去向 [计划中]:部署段按超时、不可用、被拒、其余四类归进驱动器的尝试分类,瞬态用尽时 `DeploymentFailedError` 上抛、轮次留 `pending`;验证段的瞬态改抛 `DeferredError`,其余 T3 | 让异常照今天的规则原样穿出;瞬态用尽后另判 T3 | 罐头后端从不失败,原样穿出在今天没出过事;真模型下穿出会让守护进程带回溯退出。沿用现行去向不改本篇已有的失败表 | 远端服务一直不可用时,部署段每次重启都在同处上抛退出,验证段则连续延后到上限才退出 |
+| MA-45 | `--agent-backend vllm` 时一个部署轮次起一个 vLLM 服务,智能体位与对手位共用;上下文由组合根注入,轮次只在真跑部署时进入,处理器返回或抛出时停服务、放租约 [已落地] | 每条 episode 起一次;守护进程常驻一个服务 | 起服务要几分钟加载基座,按 episode 起会让部署耗时翻几倍。常驻会一直占着整机租约,训练与评测永远排不上 | 一轮里起服务失败就整轮延后;轮次跑多久,租约就占多久,期间训练作业只能等 |
+| MA-46 | 部署服务只挂基座,`backend_factory` 在 `vllm` 下忽略 `checkpoint_ref`,每次返回绑到 `BASE_MODEL_NAME` 的新后端;`checkpoint_ref` 照旧写进轮次产物 [已落地] | 挂被晋级模型的适配器导出 | 先用纯基座跑通部署路;选权重要另接适配器解析与导出校验,不在这一版的范围里 | 部署结果反映的是基座,不是被晋级模型;拿它评估晋级效果会得出错的结论 |
+| MA-47 | 智能体位的 vLLM 调用失败沿用现行去向 [已落地]:部署段按超时、不可用、被拒、其余四类归进驱动器的尝试分类,瞬态用尽时 `DeploymentFailedError` 上抛、轮次留 `pending`;验证段的瞬态改抛 `DeferredError`,其余 T3 [计划中] | 让异常照今天的规则原样穿出;瞬态用尽后另判 T3 | 罐头后端从不失败,原样穿出在今天没出过事;真模型下穿出会让守护进程带回溯退出。沿用现行去向不改本篇已有的失败表 | 远端服务一直不可用时,部署段每次重启都在同处上抛退出,验证段则连续延后到上限才退出 |
 | MA-48 | 轮次产物记 `deployment_backend`;`pending` 轮次重入时记下的与本次不同,轮次以 T3 关闭,不复用、不重跑;终态轮次不动 [计划中] | 后端变了就重跑终态轮次;给 episode 换逻辑 id 重跑 | 罐头下提交的 episode 不能当成真模型的结果,MA-25 也不许同一逻辑 id 重跑。改调和循环的触发条件或 episode 命名牵动范围大,真机验证本来就用新树 | 已有罐头轮次终态的模型,打开开关不会为它重跑;要看真模型结果,得晋级新模型或换新树 |
 
 ## 8. 失败处理与可观测
@@ -884,17 +885,17 @@ join 等不到时,服务端把资源移进滞留表,由回收线程过后再关�
 | 开下一次尝试或提交前世界的端口没关 | 延后(瞬态) | 抛 `DeferredError`,轮次留 `pending`,退避重入,快照在就先恢复 | 无 |
 | 门② 增量的 `(scenario_id, persona_id)` 不是部署配置里绑定的一对 | T2 | 提案留在 `approved` | `failure-admit-<提案>.yaml` |
 | 记忆根是旧布局,或部署配置里同一人格占两个角色位 | 装配期 | 组合根拒绝启动,退出码 2 | 无 |
-| 部署段智能体位 vLLM 超时或暂时不可用(`OpponentTimeoutError`、`OpponentUnavailableError`)[计划中] | T1 | 本条一次失败尝试,终止原因 `role_backend_timeout` 或 `role_backend_unavailable`,回滚世界后重跑;用尽时 `DeploymentFailedError` 上抛,轮次留 `pending`,守护进程退出 | 无;重启后的 tick 重入 |
-| 部署段智能体位 vLLM 被拒(`OpponentRejectedError`)[计划中] | T3 | 本条失败,终止原因 `role_backend_rejected`,不重跑;先回滚在途 episode,再轮次 `failed` | `failure-agent-<model>.yaml` |
-| 部署段智能体位 vLLM 回复形状不对或为空(其余 `OpponentApiError`)[计划中] | T3 | 本条失败,终止原因 `role_backend_failure`,不重跑;先回滚在途 episode,再轮次 `failed` | `failure-agent-<model>.yaml` |
+| 部署段智能体位 vLLM 超时或暂时不可用(`AgentBackendTimeout`、`AgentBackendUnavailable`)[已落地] | T1 | 本条一次失败尝试,终止原因 `role_backend_timeout` 或 `role_backend_unavailable`,回滚世界后重跑;用尽时 `DeploymentFailedError` 上抛,轮次留 `pending`,守护进程退出 | 无;重启后的 tick 重入 |
+| 部署段智能体位 vLLM 被拒(`AgentBackendRejected`)[已落地] | T3 | 本条失败,终止原因 `role_backend_rejected`,不重跑;先回滚在途 episode,再轮次 `failed` | `failure-agent-<model>.yaml` |
+| 部署段智能体位 vLLM 回复形状不对或为空(`AgentBackendMalformed`)[已落地] | T3 | 本条失败,终止原因 `role_backend_failure`,不重跑;先回滚在途 episode,再轮次 `failed`。设计里的空回复有界重跑 [计划中] 还没实现 | `failure-agent-<model>.yaml` |
 | 验证段智能体位 vLLM 超时或暂时不可用 [计划中] | 延后 | 改抛 `DeferredError`,轮次留 `pending`,与验证段的瞬态记忆失败同一规则;照样关验证实例、删验证快照 | 无;不写树 |
 | 验证段智能体位 vLLM 被拒或回复不对 [计划中] | T3 | 轮次 `failed`(失败点 `mindagent.rounds.verify`) | `failure-agent-<model>.yaml` |
-| 部署服务租约被占、服务起不来、隧道开不了 [计划中] | 延后 | `DeferredError`,轮次留 `pending`,不写树;连续延后达上限守护进程带原因退出 | 无 |
-| 部署服务配置不可用(确定性 `ComputeError`)[计划中] | T3 | 轮次 `failed`,原因写服务实际给的模型名 | `failure-agent-<model>.yaml` |
-| 部署对手位的 vLLM 调用失败 [计划中] | 同上方会话失败 | 服务端照旧归成 `role_backend_*` 终止原因,驱动器照旧分类 | 同会话失败 |
+| 部署服务租约被占、服务起不来、隧道开不了 [已落地] | 延后 | 是 `DeferredError` 的子类,轮次留 `pending`,不写树;连续延后达上限守护进程带原因退出 | 无 |
+| 部署服务配置不可用(确定性 `ComputeError`)[已落地] | T3 | 进入上下文时改抛 `SimpleActioDataError`,轮次 `failed`,原因只写异常类名。设计里的「原因写服务实际给的模型名」[计划中] 还没实现 | `failure-agent-<model>.yaml` |
+| 部署对手位的 vLLM 调用失败 [已落地] | 同上方会话失败 | 服务端照旧归成 `role_backend_*` 终止原因,驱动器照旧分类 | 同会话失败 |
 | `pending` 轮次的 `deployment_backend` 与本次不同,且已有提交过的 episode [计划中] | T3 | 轮次 `failed`,原因 `deployment backend changed`;不复用、不重跑它的 episode。没有提交过 episode 时不判失败,按本次后端重写载荷 | `failure-agent-<model>.yaml` |
 | 同一记忆根上从罐头切到真模型 [计划中] | 需人工 | 部署世界按情境 id 跨轮次累积,罐头轮次写进去的拼接话语会被真模型第一轮召回;换树不换记忆根就是同一批世界。切后端时另配一个新的记忆根 | `deployment_backend`(本轮看不到上一轮的内容) |
-| 停部署服务时作业还在跑 [计划中] | T3 | 不放租约;轮次 `failed`,原因点名作业 id 与「到计算主机上手工停掉」,与 `--interact` 的判法一致;已有在途异常时它优先,`ServeStopError` 只补类名与作业 id | `failure-agent-<model>.yaml` |
+| 停部署服务时作业还在跑 [计划中] | T3 | 不放租约;轮次 `failed`,原因点名作业 id 与「到计算主机上手工停掉」,与 `--interact` 的判法一致;已有在途异常时它优先,`ServeStopError` 只补类名与作业 id。今天 `ServeStopError` 是 `DeferredError` 的子类,按普通延后处理 | `failure-agent-<model>.yaml` |
 
 轮次的失败记录挂在绑定模型所在 run 下,task id 为 `agent-<model>`。收录的失败记录挂在提案载荷里的 `run_id` 下,task id 为 `admit-<提案 id>` [已落地]。
 
@@ -937,11 +938,11 @@ join 等不到时,服务端把资源移进滞留表,由回收线程过后再关�
 | 组件 [已落地] | 别的轮次的未提交快照:快照目录里预先放一份别的轮次 id 的起点快照,本轮延后,原因写明那个轮次;别的世界的快照不挡;任一在途记录读不出判数据错误 | 临时目录 |
 | 组件 [已落地] | 验证重放:一个发现跨两个情境时,每个情境的 episode 都在本情境的验证世界里回放 | FileTupleStore |
 | 组件 [已落地] | 门②:增量带 `scenario_id`;不在部署配置里的 `(scenario_id, persona_id)` 判 T2;只锁提案涉及的世界,一份提案可写两个世界 | FileTupleStore |
-| 单元 [计划中] | `backend_factory` 在部署服务上下文里每次返回绑到同一服务基座的新 `VllmPolicy`,`checkpoint_ref` 不参与选择;部署与验证都经它取后端 | 替身服务句柄、替身后端 |
-| 组件 [计划中] | 部署服务上下文:只在真跑部署时进入;起服务失败判延后,轮次留 `pending`;已终态、被取代、模型不合法、读库失败的出口不起服务、不取租约;返回与抛出的两条路径都停服务放租约 | 替身 `serve` |
-| 组件 [计划中] | 智能体位调用失败的三档去向:部署段按终止原因 `role_backend_timeout`、`role_backend_unavailable`、`role_backend_rejected`、`role_backend_failure` 归进尝试分类,瞬态用尽时 `DeploymentFailedError` 上抛、轮次留 `pending`;验证段瞬态改抛 `DeferredError`,其余 T3 | 抛对应异常的替身后端、故障注入 |
+| 单元 [已落地] | `backend_factory` 在部署服务上下文里每次返回绑到同一服务基座的新 `VllmPolicy`,`checkpoint_ref` 不参与选择;部署与验证都经它取后端;外面套 `TranslatingAgentBackend`,四个异常各一条 | 替身服务句柄、替身后端 |
+| 组件 [已落地] | 部署服务上下文:只在真跑部署时进入;起服务失败判延后,轮次留 `pending`;已终态、被取代、模型不合法、读库失败的出口不起服务、不取租约;返回与抛出的两条路径都停服务放租约;两轮的作业名不同 | 替身 `serve` |
+| 组件 [已落地] | 智能体位调用失败的三档去向:部署段按终止原因 `role_backend_timeout`、`role_backend_unavailable`、`role_backend_rejected`、`role_backend_failure` 归进尝试分类,瞬态用尽时 `DeploymentFailedError` 上抛、轮次留 `pending`;验证段瞬态改抛 `DeferredError`,其余 T3 [计划中] | 抛对应异常的替身后端、故障注入 |
 | 组件 [计划中] | `deployment_backend` 只在 `vllm` 时进产物;`pending` 轮次重入时后端不同判 T3,终态轮次不动;罐头路径的产物不变 | 临时产物树 |
-| 单元 [计划中] | 部署服务不给 `BASE_MODEL_NAME` 时判 T3,原因写服务实际给的模型名 | 替身服务句柄 |
+| 单元 [计划中] | 部署服务不给 `BASE_MODEL_NAME` 时判 T3,原因写服务实际给的模型名。今天 `VllmPolicy` 抛 `ComputeError`,轮次处理器不收它,会穿过处理器上抛 | 替身服务句柄 |
 
 **用例数**
 
@@ -961,11 +962,11 @@ join 等不到时,服务端把资源移进滞留表,由回收线程过后再关�
 
 不装 extra `memory` 时 `tests/test_ma_deployment_starling.py` 整文件跳过,其余用例走 FileTupleStore 替身;真抽取与真嵌入不进测试,Starling 用例接的是本机回环的假端点。服务端夹具沿用 `tests/test_mt_trajectory_interact.py` 的搭法。gRPC 测试给每条流加 15 秒 deadline,收尾等服务端停止,防止挂住套件。
 
-**不依赖的外部服务**:GPU、外部网络、真实模型 checkpoint、真实外部推理工具、远程计算服务器。真模型部署后端的测试用替身服务,不连 SSH [计划中];真机核对在第 10 章的未核实项里。
+**不依赖的外部服务**:GPU、外部网络、真实模型 checkpoint、真实外部推理工具、远程计算服务器。真模型部署后端的测试用替身服务,不连 SSH [已落地];真机核对在第 10 章的未核实项里。
 
 ## 10. 现状、局限与未核实项
 
-结论:`src/mindagent` 十二个模块 [已落地],两个处理器由组合根按 `--enable agent,admit` 装配,并经 `reconcile_once` 端到端跑通;闭环里的部署后端缺省仍是罐头实现,不加载 checkpoint [已落地];真模型部署后端由 `--agent-backend vllm` 打开 [计划中]。
+结论:`src/mindagent` 十二个模块 [已落地],两个处理器由组合根按 `--enable agent,admit` 装配,并经 `reconcile_once` 端到端跑通;闭环里的部署后端缺省仍是罐头实现,不加载 checkpoint [已落地];真模型部署后端由 `--agent-backend vllm` 打开 [已落地]。
 
 **能力现状**
 
@@ -986,7 +987,7 @@ join 等不到时,服务端把资源移进滞留表,由回收线程过后再关�
 | 接 Starling 记忆服务:快照按 id 与在途记录、恢复分码、验证从快照分叉重放世界、放弃带主体、删 `scratch_store_factory` | [已落地] | 驱动器、门② 与世界锁的流程不变。验证段每个情境 `fork_replay` 一次、实例只开只读句柄,`src/mindagent/verify.py` 按情境缓存基线与候选两个实例 |
 | 记忆按情境世界组织:部署世界、部署对手位进世界、世界锁、整世界快照、带主体的事件 key、新复用判据、按情境的验证快照、记忆增量带 `scenario_id`、等端口全关 | [已落地] | 落盘替身与 Starling 两个实现过同一套契约测试 |
 | 部署后端缺省是罐头 | [已落地] | `backend_factory` 是 `canned_backend_factory`,部署对手念台词,轮次产物不写 `deployment_backend` |
-| 真模型部署后端 | [计划中] | `--agent-backend vllm`:一轮一个只挂基座的 vLLM 服务,两个角色位共用;部署与验证都经它;智能体位调用失败按三档归类;`deployment_backend` 进产物,`pending` 轮次后端变了判 T3 |
+| 真模型部署后端 | [已落地] | `--agent-backend vllm`:一轮一个只挂基座的 vLLM 服务,两个角色位共用;部署与验证都经它;智能体位调用失败按三档归类;171 真机待跑。`deployment_backend` 进产物、`pending` 轮次后端变了判 T3 [计划中] |
 
 **三条必须知道的设计取舍**
 
@@ -1019,9 +1020,9 @@ join 等不到时,服务端把资源移进滞留表,由回收线程过后再关�
 | 信念那一遍的确定性坏输出被当作瞬态 | rise 走 Starling 的旧抽取路径,信念那一遍的确定性解析失败在 Starling 侧被补成 `transport_failure`(瞬态),门② 于是反复延后重试,连续延后达上限时守护进程退出 | 同一个 issue #116:这条路径应把解析失败归为确定性类别;在那之前,操作员看到的是「收录一直延后」,不是「被拒」 |
 | 部署对手位的记忆随部署次数漂移 [已落地] | 一个情境部署得越多,对手越“认识”智能体;轮次之间比较行为多一个变量 | 验证重放不受影响:重放只跑智能体位,对手原话按存档回放,不读记忆 |
 | 别的轮次回滚失败会挡住本轮的同一世界 [已落地] | 本轮在那个世界的 episode 一直延后,连续延后达上限守护进程退出 | 人工恢复或删除那份快照;这是有意的 |
-| 部署后端缺省是罐头 [已落地] | 缺省下智能体位把指导语拼成一句话,对手念三句台词;部署 episode 只证明路由与轨迹,不代表模型行为 | `--agent-backend vllm` 让两个角色位由远端 vLLM 上的基座说话 [计划中] |
-| 真模型部署只挂基座 [计划中] | 部署结果反映的是基座,不是被晋级模型 | `checkpoint_ref` 照旧写进轮次产物;挂适配器另立设计 |
-| 真模型部署下的非确定 [计划中] | 同一模型同一库重跑,发现集合会不同;与对手记忆漂移叠加,这一版不区分两者 | 比较轮次之间的发现时把两者都算进去 |
+| 部署后端缺省是罐头 [已落地] | 缺省下智能体位把指导语拼成一句话,对手按情境剧本回复(没带剧本念三句台词);部署 episode 只证明路由与轨迹,不代表模型行为 | `--agent-backend vllm` 让两个角色位由远端 vLLM 上的基座说话 [已落地] |
+| 真模型部署只挂基座 [已落地] | 部署结果反映的是基座,不是被晋级模型 | `checkpoint_ref` 照旧写进轮次产物;挂适配器另立设计 |
+| 真模型部署下的非确定 [已落地] | 同一模型同一库重跑,发现集合会不同;与对手记忆漂移叠加,这一版不区分两者 | 比较轮次之间的发现时把两者都算进去 |
 | 共享感知与跨情境记忆不做 [推迟] | 在场的人不会都记住同一句话;同一人格在两个情境里记忆不相通 | 共享感知以后接 Starling 的感知授权 |
 
 **未核实项**
@@ -1031,7 +1032,7 @@ join 等不到时,服务端把资源移进滞留表,由回收线程过后再关�
 | 累计通过数 | 十一个测试文件共 252 个用例(含 7 个装了 extra `memory` 才跑的),数目已按 `--collect-only` 实测;在主干上的全量通过数没有单独记录 | 在主干跑全量测试取基线,逐任务核对增量 |
 | gRPC 用例稳定性 | 只在 macOS 上连跑三次 | 在 Linux 与 CI 上重复运行三个 gRPC 测试文件 |
 | 外部模型能否稳定只输出一个 JSON 对象 | 解析耗尽频繁时轮次大量 `failed` | 接真实外部工具后统计解析失败率 |
-| 真模型部署后端端到端跑通 [计划中] | 两个角色位的话语来自模型、轮次到终态、租约放掉、`deployment_backend` 写对,这几件都只在替身上测过 | 171 上一棵新树、一个新晋级的模型,`--enable agent --agent-backend vllm --endpoint gpu-171`,记忆接 Starling,跑一个部署轮次逐项核对 |
+| 真模型部署后端端到端跑通 [计划中] | 两个角色位的话语来自模型、轮次到终态、租约放掉,这几件都只在替身上测过 | 171 上一棵新树、一个新晋级的模型,`--enable agent --agent-backend vllm --endpoint gpu-171`,记忆接 Starling,跑一个部署轮次逐项核对 |
 | 真模型下发现集合是否为零 [计划中] | `emotion_high` 是关键词匹配,英文情绪词只有五个;默认情境与人格是英文,模型多半用英文回;不触发时零发现、零提案,技能库不增长 | 同一次 171 真机轮次里看 `findings` 与每条 episode 的信号;零发现也算跑通 |
 | 真模型部署一轮的耗时与调用量 [计划中] | 默认三个情境、每条 4 轮、两个角色位,按场景二实测每轮 20 到 65 秒,部署约 4 到 13 分钟,另加起服务;有提案时验证再让智能体位重说动机轮次 | 同一次真机轮次记起服务、部署段、验证段各自的耗时与 POST 数 |
 | 部署按 `checkpoint_ref` 加载被晋级模型 [推迟] | 部署与验证用不上被晋级的权重 | 另立设计接适配器导出后,用真实 checkpoint 跑一轮 |
