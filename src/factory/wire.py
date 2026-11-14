@@ -575,6 +575,7 @@ def assemble(
     # `--agent-backend vllm` 的端点与客户端同 `--interact` 的写法(同一个 `--endpoint` 也在这里点名),在造运行时之前选,
     # 配置错由下面那段的收尾一并处理。装配期只选端点、造客户端:不占租约、不起服务
     endpoint = client = None
+    deployment_service = None
     try:
         if options.agent_backend == "vllm":
             from factory.compute_config import (
@@ -588,20 +589,20 @@ def assemble(
             training_worlds=None if memory is None else memory.training_worlds,
             deployment_store=deployment_store,
         )
+        if client is not None:
+            # 两个超时取预算里的两层 HTTP 上限:智能体位是训练一轮的等提交,对手位与 --interact 同。
+            # 放在 try 里:这一步若真出错,上面造好的记忆会话与服务也随 _close_all(early) 一起收尾。
+            assert runtime is not None       # --agent-backend vllm 必须与 --enable agent 同开(上面已核)
+            deployment_service = _deployment_service_factory(
+                client=client, endpoint=endpoint, runtime=runtime,
+                agent_timeout_s=memory.budget.policy_s, opponent_timeout_s=memory.budget.opponent_s,
+            )
     except BaseException:
         try:
             _close_all(early)
         except Exception:
             pass
         raise
-    deployment_service = None
-    if client is not None:
-        # 两个超时取预算里的两层 HTTP 上限:智能体位是训练一轮的等提交,对手位与 --interact 同
-        assert runtime is not None       # --agent-backend vllm 必须与 --enable agent 同开(上面已核)
-        deployment_service = _deployment_service_factory(
-            client=client, endpoint=endpoint, runtime=runtime,
-            agent_timeout_s=memory.budget.policy_s, opponent_timeout_s=memory.budget.opponent_s,
-        )
     ctx = BuildContext(
         store=store,
         accept_mock_evidence=options.allow_mock_evidence,

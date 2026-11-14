@@ -94,6 +94,12 @@ def _checked_memory_library(ctx) -> None:
 def _agent(ctx) -> Handler:
     _checked_memory_library(ctx)
     config, lines = read_agent_settings(ctx.store)
+    backend = ctx.agent_backend
+    if backend == "vllm" and ctx.deployment_service is None:
+        # assemble 里两者总是同时出现;手工拼的 BuildContext 只给了标志就会静默退回罐头后端,这里直接拦住。
+        raise FactoryConfigError(
+            "--agent-backend vllm needs a deployment service: assemble() builds it from the endpoint; "
+            "a hand-built BuildContext must pass one")
     mem = ctx.deployment_memory
     starling = mem.runtime["backend"] == "starling"
     budget = mem.budget
@@ -113,7 +119,6 @@ def _agent(ctx) -> Handler:
     # 训练路的流 deadline 由轨迹源自己传;替身不传,保持 AgentRuntime 的缺省。推出的预算另传等端口全关与准入退避的上限,
     # 两者随服务端收尾的 join 一起放长。
     # --agent-backend vllm:智能体位也是一次真模型调用,每轮取 agent_deploy_per_turn_s(与训练一轮同形)。
-    backend = ctx.agent_backend
     if backend == "vllm":
         extra: dict = {"stream_deadline_s": config.max_turns * budget.agent_deploy_per_turn_s}
     elif starling:

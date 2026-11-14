@@ -874,6 +874,31 @@ def test_a_missing_endpoint_config_under_vllm_is_a_clean_assembly_error(tmp_path
     assert closed == ["session"]
 
 
+def test_a_failure_building_the_deployment_service_factory_still_closes_the_memory_wiring(tmp_path, monkeypatch):
+    """造部署服务工厂那一步也在收尾的 try 里:它若出错,记忆会话仍逆序收尾,原异常照原样往外抛。"""
+    import factory.wire as wire
+    from factory.memory_budget import BASE_LAYERS
+    from factory.memory_runtime import MemoryWiring, memory_wiring, stand_in_deployment_memory
+
+    store = _closed(tmp_path, run_id=None)
+    closed = []
+    real = memory_wiring(store.repo_root, {}, deployment=True)
+    fake = MemoryWiring(backend="starling", deployment=stand_in_deployment_memory(store.repo_root),
+                        memory_resolver=real.memory_resolver, training_worlds=real.training_worlds,
+                        budget=BASE_LAYERS, closers=(lambda: closed.append("session"),))
+    monkeypatch.setattr(wire, "memory_wiring", lambda *a, **kw: fake)
+    _write_endpoints(store, "gpu-1")
+
+    def boom(**kw):
+        raise ValueError("bad service timeouts")
+
+    monkeypatch.setattr(wire, "_deployment_service_factory", boom)
+    with pytest.raises(ValueError, match="bad service timeouts"):
+        assemble(store, FactoryOptions(switches=("agent",), agent_backend="vllm"),
+                 env=_hosts(tmp_path, "gpu-1: gpu-181\n"))
+    assert closed == ["session"]
+
+
 def test_the_wrapped_factory_binds_the_opponents_inside_the_service(tmp_path, monkeypatch):
     """包装后的工厂:同一个 ExitStack 里先进服务上下文、再装上对手开关;退出时按相反顺序卸下。"""
     import contextlib

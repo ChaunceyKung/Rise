@@ -1365,6 +1365,21 @@ def test_a_hand_built_context_gives_its_own_runtime_the_same_management_plane(st
         _close_all(ctx.closers)
 
 
+def test_a_hand_built_context_with_vllm_but_no_deployment_service_is_refused(store):
+    """--agent-backend vllm 却没有部署服务时必须报装配错误:否则轮次处理器会静默退回罐头后端。"""
+    import factory.handlers as fh
+    from factory.memory_runtime import stand_in_deployment_memory
+    from factory.wire import BuildContext, _close_all
+    mem = stand_in_deployment_memory(store.repo_root)
+    ctx = BuildContext(store=store, accept_mock_evidence=False, confirm_directives=None, planner_backend="heuristic",
+                       env={}, log_dir=None, deployment_memory=mem, agent_backend="vllm")
+    try:
+        with pytest.raises(FactoryConfigError, match="needs a deployment service"):
+            fh._agent(ctx)
+    finally:
+        _close_all(ctx.closers)
+
+
 def test_a_deployment_round_through_the_real_server_writes_the_opponent_into_the_scenario_world(store):
     """一轮真的部署:轮次处理器 → 部署驱动器 → 进程内 loopback 服务端。对手位按驱动器登记的轮次 id 在情境世界里
     开端口,它记下的智能体发言落在 agent-round-<模型>/deploy-...#N@<对手人格> 下,与智能体位的行在同一个世界文件里。"""
