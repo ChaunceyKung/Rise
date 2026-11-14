@@ -607,7 +607,7 @@ Starling 一侧 [已落地]:rollout 世界从种子世界分叉,标为可回收,
 
 验证度量的是"路由是否按预期改变",不度量对话质量;质量评分可选接 judge,单列在 `quality_notes`,不参与筛选。验证用的就是触发提案的同一批 episode,没有留出集 [推迟],过拟合说明写进 `notes`。
 
-今天走得到哪:闭环里已走通(`factory run --enable agent,admit`),缺省的部署后端是罐头的 `CannedGuidedBackend`,不加载 checkpoint,对手是脚本台词,所以缺省下部署 episode 只证明路由与轨迹,不代表模型能力。V1 只生成技能增量,不生成记忆增量。agent_rsi 配方能校验与检索,但不自动提名 [推迟],要入库须人写候选,锚定字段从轮次产物取。
+今天走得到哪:闭环里已走通(`factory run --enable agent,admit`),缺省的部署后端是罐头的 `CannedGuidedBackend`,不加载 checkpoint,对手按情境剧本回复(情境没带剧本时念全局台词;剧本优先 [计划中]),所以缺省下部署 episode 只证明路由与轨迹,不代表模型能力。V1 只生成技能增量,不生成记忆增量。agent_rsi 配方能校验与检索,但不自动提名 [推迟],要入库须人写候选,锚定字段从轮次产物取。
 
 真模型部署后端 [计划中]:`--agent-backend vllm` 打开,缺省 `canned` 不变。一个部署轮次在远端计算层起一个 vLLM 服务,只挂基座 `Qwen3.8-Flash-Next`,两个角色位共用:智能体位按技能指导语回应,对手位按人格与情境发言。部署 episode 与离线重放验证都在这个服务上跑完,轮次结束停服务、放 GPU 租约。
 

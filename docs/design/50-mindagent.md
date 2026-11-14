@@ -384,7 +384,7 @@ def make_admit_proposal_handler(*, memory_store, memory_layout,
 
 | 部署后端 | `backend_factory` 每次调用返回 | 状态 |
 |---|---|---|
-| `canned`(缺省) | 每次一个新的 `CannedGuidedBackend`,把技能指导语拼成一句话,不调模型 | [已落地] |
+| `canned`(缺省) | 每次一个新的 `CannedGuidedBackend`,把技能指导语拼成一句话,不调模型;对手位按情境剧本回复,情境没带剧本念全局台词(剧本优先 [计划中]) | [已落地] |
 | `vllm` | 每次一个新的 `VllmPolicy`,都绑到本轮部署服务的同一个 `BASE_MODEL_NAME`;`checkpoint_ref` 不参与选择 | [计划中] |
 
 `vllm` 下的后端只在本轮的部署服务上下文里有效 [计划中]。组合根造部署服务上下文的工厂,经 `make_start_round_handler` 多出的一个可选参数注入轮次处理器;不传时等于罐头路径。本包不导入 `compute`,只把它当上下文管理器用:轮次真跑部署时进入,处理器返回或抛出时退出。SimpleActio 实例只调后端的 `respond_guided`,返回 `(发言, 内心独白)` 二元组,两种后端都满足。`VllmPolicy` 一次发言一次 POST,不重试,重试与分类是驱动器的事。
