@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- 缺省 `--agent-backend canned`:不加开关、情境没带剧本时,装配、运行时时限、轮次产物、部署对手的行为与今天逐字节相同;现有测试一条不改就通过。
+- 缺省 `--agent-backend canned`:不加开关、情境没带剧本时,装配、运行时时限、轮次产物、部署对手的行为与今天逐字节相同。现有测试只改 Task 6 点名的两条(它们钉住的正是"部署会话不读剧本",D11 有意改变它),其余一条不改就通过。
 - 罐头模式下智能体位仍是 `CannedGuidedBackend` 的指导语拼接,不读剧本。
 - `mindagent` 只导入 `controlplane`、`simple_actio`、`inference_bridge`、`simulator`(`docs/design/tools/check_consistency.py` 的 `ALLOWED_DEPS`);不导入 `compute`、`factory`。
 - `simple_actio` 只导入 `simulator`。
@@ -27,8 +27,9 @@
 
 只为"跑通一次"做必需的部分。下面这些在 `docs/design/` 里标 [计划中],本计划不施工,落地文档时仍保持 [计划中]:
 
-- 轮次产物的 `deployment_backend` 与换后端的比较规则(50 篇 MA-48、MA-I18),以及 `agent_rsi` 的可选锚定字段(60 篇)。真机验证用一棵新树,碰不到。
-- 回复为空的有界重跑、验证段里智能体位失败的延后与 T3、停不掉的服务点名作业(50 篇第 8 章对应行)。本计划里它们按现行去向走:回复为空不重跑、轮次 T3;验证段的智能体位异常原样上抛;`ServeStopError` 按 `DeferredError` 延后。
+- 轮次产物的 `deployment_backend` 与换后端的比较规则(50 篇 MA-48、MA-I18),以及 `agent_rsi` 的可选锚定字段(60 篇)。真机验证用一棵新树,碰不到;真机验收不核对 `deployment_backend`,60 篇这一行保持 [计划中]。
+- 回复为空的有界重跑、验证段里智能体位失败的延后与 T3、停不掉的服务点名作业(50 篇第 8 章对应行)。本计划里它们按现行去向走:回复为空不重跑、轮次 T3;验证段的智能体位异常原样上抛;`ServeStopError` 按 `DeferredError` 延后。这几行在 `docs/design/` 里保持 [计划中],真机验收不核对它们。
+- 确定性 `ComputeError` 不在此列:它不转换就会让守护进程带回溯退出,真机第一次跑就可能撞上,所以放进 Task 4。
 - 验证段改回罐头后端省调用。本计划里验证段照设计也用真模型。
 
 ## Review Focus
@@ -256,7 +257,7 @@ def test_the_shared_runtime_waits_for_the_agent_turn_under_vllm(store_with_starl
 - Produces:
   - `AGENT_SERVE_PORT = 18083`。
   - `DeploymentService`(dataclass):`backend_factory: Callable[[str, BigRef | None], object]`、`opponent_factory: Callable[[RoleBinding, Scenario], ModelBackend]`。
-  - `make_deployment_service(*, client, endpoint, agent_timeout_s: float, opponent_timeout_s: float, serve=None, build_job=build_serve_job, tunnel_factory=None, probe=http_probe) -> Callable[[str], AbstractContextManager[DeploymentService]]`:返回的 `open(round_id)` 起服务;作业规格的 `env` 多一项 `RISE_AGENT_ROUND=<round_id>`(进作业 digest,于是每轮作业名不同);`backend_factory(model_id, ckpt)` 每次返回 `TranslatingAgentBackend(VllmPolicy(handle, BASE_MODEL_NAME, timeout_s=agent_timeout_s))`;`opponent_factory(binding, scenario)` 每次返回 `VllmPolicy(handle, BASE_MODEL_NAME, timeout_s=opponent_timeout_s)`,忽略 `binding.model_ref`。
+  - `make_deployment_service(*, client, endpoint, agent_timeout_s: float, opponent_timeout_s: float, serve=None, build_job=build_serve_job, tunnel_factory=None, probe=http_probe) -> Callable[[str], AbstractContextManager[DeploymentService]]`:进入时的确定性 `ComputeError`(不是 `DeferredError` 子类,例如显存或卡数预检、`VllmServeConfig` 校验失败)改抛 `simple_actio.errors.SimpleActioDataError(f"deployment service unusable: {type(exc).__name__}")`,轮次经 `rounds.py` 现有的 `except (MindAgentDataError, SimpleActioDataError)` 判 T3;`DeferredError` 子类原样上抛。返回的 `open(round_id)` 起服务;作业规格的 `env` 多一项 `RISE_AGENT_ROUND=<round_id>`(进作业 digest,于是每轮作业名不同);`backend_factory(model_id, ckpt)` 每次返回 `TranslatingAgentBackend(VllmPolicy(handle, BASE_MODEL_NAME, timeout_s=agent_timeout_s))`;`opponent_factory(binding, scenario)` 每次返回 `VllmPolicy(handle, BASE_MODEL_NAME, timeout_s=opponent_timeout_s)`,忽略 `binding.model_ref`。
 
 - [ ] **Step 1: 写失败的测试**(注入一个记录参数的 `serve` 替身,yield 一个 `ServiceHandle("serve-x-a1", "http://127.0.0.1:1", KEY, (BASE_MODEL_NAME,))`)
 
@@ -287,6 +288,20 @@ def test_opponents_speak_through_the_base_whatever_their_model_ref(fake_serve):
 def test_a_busy_lease_propagates_as_deferred(fake_serve_busy):
     with pytest.raises(ComputeBusyError):
         with make_deployment_service(..., serve=fake_serve_busy)("r"): pass
+
+def test_a_deterministic_compute_error_on_entry_is_a_data_error(fake_serve_raises):
+    # fake_serve_raises 进入时抛 ComputeError("not enough GPUs")
+    with pytest.raises(SimpleActioDataError, match="deployment service unusable: ComputeError"):
+        with make_deployment_service(..., serve=fake_serve_raises)("r"): pass
+
+def test_both_roles_hit_the_same_service(stub_vllm):
+    # stub_vllm:本机 HTTP 替身,记下每次 POST 的 model 与 system 消息;fake_serve 交出指向它的 ServiceHandle
+    with make_deployment_service(..., serve=serve_to(stub_vllm))("r") as svc:
+        svc.backend_factory("m", None).respond_guided(P, SCEN, [], "agent", ("先回应情绪",))
+        svc.opponent_factory(BINDING_USER, SCEN).respond(P, SCEN, [], "user")
+    assert [r.model for r in stub_vllm.requests] == [BASE_MODEL_NAME, BASE_MODEL_NAME]
+    assert "先回应情绪" in stub_vllm.requests[0].system and "先回应情绪" not in stub_vllm.requests[1].system
+    assert fake_serve.exited                                  # 退出上下文就停服务
 ```
 
 - [ ] **Step 2: 跑测试确认失败**(`ImportError: cannot import name 'make_deployment_service'`)
@@ -334,7 +349,24 @@ def test_a_deferred_service_leaves_the_round_pending(store, mem):
     with pytest.raises(DeferredError):
         _start(store, _handler(mem=mem, deployment_service=_FakeService(enter_raises=DeferredError("busy"))))
     assert store.read_product(agent_round_file("zengen-v1")).status == "pending"
+
+def test_the_service_is_exited_when_the_run_fails(store, mem):
+    svc = _FakeService()
+    factory = _Factory(fail_first_n=99)                      # 部署每次尝试都失败、瞬态
+    with pytest.raises(DeploymentFailedError):
+        _start(store, _handler(mem=mem, factory=factory, deployment_service=svc))
+    assert svc.exited == 1                                  # 失败也退出上下文、停服务
+    assert not _world_lock_held(mem, "s1")                  # 世界锁已放
+
+def test_a_deferred_exit_after_success_leaves_the_round_committed(store, mem):
+    svc = _FakeService(exit_raises=DeferredError("stop retry"))
+    with pytest.raises(DeferredError):
+        _start(store, _handler(mem=mem, deployment_service=svc))
+    env = store.read_product(agent_round_file("zengen-v1"))
+    assert env.status == "executed" and not _world_lock_held(mem, "s1")   # 终态已写,下一 tick 见终态即返回
 ```
+
+`_Factory(fail_first_n=)`、`_world_lock_held` 若该文件没有,按该文件已有替身的写法加。
 
 - [ ] **Step 2: 跑测试确认失败**(`unexpected keyword argument 'deployment_service'`)
 
@@ -375,6 +407,10 @@ def test_a_canned_deployment_opponent_without_its_script_keeps_the_global_lines(
 def test_training_sessions_still_ignore_the_scenario_script_without_a_scripted_driver(store): ...
     # 登记给训练 run 的会话、绑定未写 driver:仍交给对手工厂,不念剧本
 ```
+
+**改写两条旧测试**(它们钉住的是"部署会话不读剧本",D11 有意改变它;只改断言,不删):
+- `test_without_a_factory_every_opponent_is_the_same_unlooped_scripted_backend_as_before`(`tests/test_factory_handlers.py:356`):情境带 `{"b": ["剧本"]}`,改为断言 `b` 循环念 `["剧本", "剧本", "剧本"]`、`c`(情境没给它剧本)仍念 `["全局甲", "全局乙", "(无更多发言)"]`;测试名改成 `..._unless_the_scenario_scripts_the_slot`。
+- `test_with_the_factory_set_an_unregistered_session_never_judges_its_bindings`(`:430`):保留"不判绑定、不调工厂"的断言,把台词断言改为 `b` 循环念剧本 `["剧本", "剧本", "剧本"]`,注释"剧本也不生效"删掉。
 
 - [ ] **Step 2: 跑 `pytest tests/test_factory_handlers.py -q -k "scenario_script or global_lines"`,第一条 FAIL(念的是全局台词 "嗯")**
 
@@ -443,7 +479,7 @@ Expected: 全部通过(与提交 `50e5a08` 时的通过数相比只增不减)。
 - Modify: `docs/design/00-overview.md`、`20-socialsimulator.md`、`50-mindagent.md`、`90-factory-and-cli.md`、`_shared/context-block.md`
 - 真机:171(`gpu-171`),新树 `~/rise-verify/s3-real`,新记忆根
 
-- [ ] **Step 1: 把本计划落地的条目从 [计划中] 改成 [已落地]**("本计划不做"一节列的条目保持 [计划中]),实际名字(`AGENT_SERVE_PORT = 18083`、`TranslatingAgentBackend`、`bind_deployment_opponents`、四个异常类名、`RISE_AGENT_ROUND`)写进文档。跑 `python3 docs/design/tools/sync_docs.py`、`check_docs.py`、`check_consistency.py`,0 错误。
+- [ ] **Step 1: 把本计划落地的条目从 [计划中] 改成 [已落地]**("本计划不做"一节列的条目保持 [计划中]);50、90、20 篇头部"对应实施计划"一行补"场景三真模型部署:任务 1 至 8",实际名字(`AGENT_SERVE_PORT = 18083`、`TranslatingAgentBackend`、`bind_deployment_opponents`、四个异常类名、`RISE_AGENT_ROUND`)写进文档。跑 `python3 docs/design/tools/sync_docs.py`、`check_docs.py`、`check_consistency.py`,0 错误。
 
 - [ ] **Step 2: 提交** `docs(design): 场景三真模型部署后端落地`
 
