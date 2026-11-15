@@ -12,6 +12,12 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "grpcio-tools>=1.84.0", "ruff>=0.17"]
+actio = [
+    # actio harness(DSH worker/网关/MCP)运行时闭包,与源仓 requirements.lock 同版
+    "deepseek-harness-sdk==0.1.5rc1",
+    "deepseek-harness-runtime-bin==0.1.5rc1",
+    "mcp==1.26.0",
+]
 memory = [
     "starling-client @ git+https://github.com/ruijieguo/starling@01e149d1e2139362b1b047e263f9b5b1ecba162e#subdirectory=clients/python",
     "starling-memory[dashboard] @ git+https://github.com/ruijieguo/starling@01e149d1e2139362b1b047e263f9b5b1ecba162e",
@@ -76,6 +82,14 @@ ignore = [
 # 从 Actio-RSI-infra 逐字节移植的合同层:保留上游形态(含个别死导入)以便对照与回移,
 # 详见 docs/merge/porting-map.md A1
 "src/actio/contracts/**" = ["F401"]
+# P2 移植的其余上游层(profiles/domain/evidence/adapters/interfaces/tasks):同上理由,
+# 逐字节保留上游写法(重复导入、多余括号、自引用 import 等),便于对照与回移
+"src/actio/adapters/**" = ["F401", "F811", "F841", "PLC0206", "PLC0414", "PLW0406", "UP034"]
+"src/actio/profiles/**" = ["F401", "F811", "F841", "PLC0206", "PLC0414", "PLW0406", "UP034"]
+"src/actio/domain/**" = ["F401", "F811", "F841", "PLC0206", "PLC0414", "PLW0406", "UP034"]
+"src/actio/evidence/**" = ["F401", "F811", "F841", "PLC0206", "PLC0414", "PLW0406", "UP034"]
+"src/actio/interfaces/**" = ["F401", "F811", "F841", "PLC0206", "PLC0414", "PLW0406", "UP034"]
+"src/actio/tasks/**" = ["F401", "F811", "F841", "PLC0206", "PLC0414", "PLW0406", "UP034"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

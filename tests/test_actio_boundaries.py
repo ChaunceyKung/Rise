@@ -93,3 +93,19 @@ def test_no_existing_rise_package_imports_actio_yet():
             if name.split(".")[0] == "actio":
                 offenders.append(f"{path.relative_to(SRC)}:{name}")
     assert offenders == [], f"P1 尚不允许导入 actio: {offenders}"
+
+
+def test_the_actio_tree_does_not_import_any_rise_package():
+    """反向隔离:移植进来的 actio 树不许反向依赖 Rise 的包。
+
+    两仓各自独立演进、随时可回移的前提。工厂接线(factory)是唯一例外,随 P3 开闸。
+    """
+    offenders: list[str] = []
+    for path in (SRC / "actio").rglob("*.py"):
+        for name in _imports_of(path):
+            top = name.split(".")[0]
+            if top in {"simple_actio", "factory", "mindagent", "recipestore", "controlplane",
+                       "simulator", "diagnostic", "mindtrainer", "trainplanner", "trainscheduler",
+                       "inference_bridge", "compute"}:
+                offenders.append(f"{path.relative_to(SRC)}:{name}")
+    assert offenders == [], f"actio 反向依赖了 Rise 包: {offenders}"

@@ -1,0 +1,55 @@
+{
+  "schema": "deepseek-flash-quote.v1",
+  "id": "deepseek-flash-2026-10-09-peak.v1",
+  "currency": "USD",
+  "minor_per_currency": 1000000000,
+  "rate_denominator_tokens": 1000000,
+  "input_hit_minor": 6000000,
+  "input_miss_minor": 300000000,
+  "output_minor": 1200000000,
+  "valid_from": "2026-10-08T16:00:00+00:00",
+  "valid_until": "2026-10-10T16:00:00+00:00",
+  "validity_basis": "local 48-hour review window, not supplier price guarantee",
+  "pricing_period": "peak at all times; no off-peak discounts",
+  "sources": [
+    {
+      "name": "intro",
+      "url": "https://api-docs.deepseek.com/",
+      "final_url": "https://api-docs.deepseek.com/",
+      "status": 200,
+      "sha256": "7ce9db1b1cc7e2efafe7cbfd57b9d46d240c20399f7bd87672c7e3a5250ccdd0",
+      "bytes": 48088,
+      "accessed_utc": "2026-10-09T02:11:40.361668+00:00"
+    },
+    {
+      "name": "pricing",
+      "url": "https://api-docs.deepseek.com/quick_start/pricing/",
+      "final_url": "https://api-docs.deepseek.com/quick_start/pricing/",
+      "status": 200,
+      "sha256": "210f102275ccf1a6542f08a3bc9e4b4c7c83278cb74b35217bffa112df6363b2",
+      "bytes": 23982,
+      "accessed_utc": "2026-10-09T02:11:40.453226+00:00"
+    },
+    {
+      "name": "chat",
+      "url": "https://api-docs.deepseek.com/api/create-chat-completion/",
+      "final_url": "https://api-docs.deepseek.com/api/create-chat-completion/",
+      "status": 200,
+      "sha256": "e7133a7c2a7c2662567cca2e2392b503f97c2fb583009ff85f878744e0a36ba7",
+      "bytes": 142966,
+      "accessed_utc": "2026-10-09T02:11:40.679702+00:00"
+    },
+    {
+      "name": "tokens",
+      "url": "https://api-docs.deepseek.com/quick_start/token_usage",
+      "final_url": "https://api-docs.deepseek.com/quick_start/token_usage/",
+      "status": 200,
+      "sha256": "08bf766935b9ff92aee592c70bdac0908e3f44f1e3e52e93dd7aeafc9925fd1a",
+      "bytes": 22447,
+      "accessed_utc": "2026-10-09T02:12:46.004505+00:00"
+    }
+  ],
+  "unit_basis": "pricing page says per 1M; decimal million used for conservative estimate (higher than per 2^20); exact supplier denominator still unconfirmed",
+  "additional_charges": "plain text token charges only described; errors and possible extra charges not independently confirmed",
+  "billing_reconciled": false
+}

@@ -35,3 +35,27 @@
 - golden 向量生成命令(Actio 仓,`.local/phase1-env` 解释器):
   `python -c "from actio.contracts.json import canonical, digest, seal; ..."`
 - Rise 侧跑测试统一加 `--basetemp=<工作区>/.pytest-tmp-*`(见 BASELINE.md §1)。
+
+## P2:harness 闭包与预算制网关(方案 A2/A3/A9/A13/A4 前半)
+
+**布局决策修正**:移植件一律保留上游包路径(`actio.adapters.*/profiles/domain/evidence/interfaces/tasks/resources/measurement`),
+零 import 改写、node 侧 spawnSync 的点路径(`actio.interfaces.ipc.budget`、`actio.interfaces.workers.*`)原样生效;
+**新写的组合代码才进新包** `actio/harness`(identity/gateway)。原方案的 `src/actio/harness/` 整体收纳方案作废。
+
+| 内容 | 来源 | 偏差 |
+|---|---|---|
+| adapters/{filesystem,runtime(supervisor/host/mcp_server),transport(fixture/responses/plugins/fixtures),persistence(ledger),memory(starling)} | 逐字节 | 无 |
+| profiles 全包 + domain + evidence/audit + tasks 全家 + measurement + resources + interfaces/{ipc,workers} | 逐字节 | 无(比方案预估多迁 tasks/measurement/resources:profiles 谓词的惰性闭包) |
+| `actio/harness/identity.py` | 新写(源自 runtime.py:20-50 的 store-free 段) | PACKAGE 指向 src/actio(D7:Rise 侧包改动不扰动 pins);registry 惰性化 |
+| `actio/harness/gateway.py` GatewayRuntime | **新组合**(三刀的 store-free 半边) | native_usage 从 host.jsonl 直取(替代 Facts/occurrence);campaign v8/v9/v10 分支与 suite 审计随 P3/P4 |
+| TransportPort/RuntimePort 主体 | 未迁 | Store 编排半边(fence/intent/op_update/Facts)随 P3/P4;gateway 分支语义已由 GatewayRuntime 承接 |
+| `interfaces/cli`、application/*、adapters/{runtime(facts/runtime/evaluator/cleanup),environment,persistence(store/database)} | 未迁 | P3/P4 |
+
+**范围修正(对方案 §4 P2)**:
+1. gateway 合同是冻结合同(plan∈{compatible,conflict},上限 2×len(plan) 次调用)——**不适合逐轮对话 backend**;
+   DSH 通道定位为"预算制单发/有限发",消费者是 P3 MindAgent 演化步骤。`--agent-backend dsh` 挂进
+   factory 对手位的原验收作废,改为 P3 演化管线的 GatewayRuntime 消费(T-A-01 e2e 已在测试中闭环)。
+2. D1 桥(Rise starling 会话 ↔ StarlingMemoryPort facade)与 factory 接线 → P3 开工(P2 已备齐
+   adapter 与 contracts)。CAS Memory/outbox 投影依赖 Store → P4。
+3. Actio 基线 12 条 gateway"环境性失败"已根因(**owned_root 80 字符路径上限**,本机仓库前缀过长)并在
+   源仓以 `runs = "D:/A_t"` 修复复绿;Rise 侧 e2e 用预解析短根 + 跳过长环境。
