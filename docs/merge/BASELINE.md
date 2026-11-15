@@ -53,4 +53,5 @@
 |---|---|---|---|
 | P0 | 2026-11-15 | 基线建立 | Rise 4864P/189F/130S/12E;Actio 186T/9F/6E/2S |
 | P1 | 2026-11-15 | **通过** | Rise 4914P/188F/130S/12E(+49 契约/边界测试);新增失败 0(docs/merge/compare_failures.py);消失 1 条为已知易抖的 test_repo_lock 文件锁用例 |
-| P2 | 2026-11-15 | **通过**(范围修正见 porting-map) | Actio 仓 12 条 gateway"环境性失败"根因为 owned_root 80 字符上限,源仓 runs 改 D:/A_t 后 gateway 系列全绿;剩余已知失败=1 真缺陷(SOURCE 导入,P3 修)+2 Windows 权限语义 |
+| P2 | 2026-11-15 | Actio 侧:gateway 12 失败根因(80 字符上限)已修复全绿 | 剩余已知失败=1 真缺陷(SOURCE 导入,P3 修)+2 Windows 权限语义 |
+| P2 | 2026-11-15 | **通过** | Rise 4924P/188F/130S/12E:新增失败 0(+10 测试:契约 49 已在 P1 计入,本轮 harness/memory/边界);消失 1 条仍为易抖文件锁用例 |
