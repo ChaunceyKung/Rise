@@ -59,3 +59,15 @@
    adapter 与 contracts)。CAS Memory/outbox 投影依赖 Store → P4。
 3. Actio 基线 12 条 gateway"环境性失败"已根因(**owned_root 80 字符路径上限**,本机仓库前缀过长)并在
    源仓以 `runs = "D:/A_t"` 修复复绿;Rise 侧 e2e 用预解析短根 + 跳过长环境。
+
+## P3:MindAgent 演化 infra(方案 A5/A6/A7 的接线)
+
+| 内容 | 来源 | 说明 |
+|---|---|---|
+| `mindagent/evolution.py` | **新写** | 演化三元组(D6):plan/measure/gain_signature/admit_scaffold/dispatch;candidate 域与 oracle 在 P2 已随闭包进仓,此处只做接线 |
+| `factory/memory_actio_bridge.py` | **新写** | D1 桥:MemoryBackend→Actio 鸭子 facade→StarlingMemoryAdapter shadow 投影栈;Rise 消费方零改动 |
+| B0/C1/POLICY golden | 两仓解释器各跑一遍比对一致后固化进测试 | 跨仓字节互通的证据 |
+| SOURCE 真缺陷修复 | 延后至 P4 | test_evaluation_candidate_runtime 属全栈测试,随 Store 一起移植时修 |
+| GatewayRuntime 消费(演化步骤用) | P4 接 | P3 只留 V2 接缝(plan_from_switches 拒绝 gateway 并注明) |
+
+边界开闸记录:actio 消费方 = {factory, mindagent}(test_actio_boundaries 强制)。
