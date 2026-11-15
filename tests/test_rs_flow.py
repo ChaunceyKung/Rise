@@ -67,8 +67,10 @@ def _imports(path: Path) -> set[str]:
 
 def test_recipestore_only_imports_controlplane_among_project_packages():
     project = {p.name for p in SRC.parent.iterdir() if (p / "__init__.py").exists()}
+    # actio 合并(docs/merge/plan.md)后放行 actio:D2 桥经它做 sealed 数据互通。
+    # "只许 actio.contracts 子包"的窄门由 tests/test_actio_boundaries 按模块前缀把守。
     for path in sorted(SRC.glob("*.py")):
-        bad = (_imports(path) & project) - {"controlplane", "recipestore"}
+        bad = (_imports(path) & project) - {"controlplane", "recipestore", "actio"}
         assert not bad, f"{path.name} imports {sorted(bad)}"
 
 
