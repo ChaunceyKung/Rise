@@ -25,7 +25,7 @@ build-backend = "hatchling.build"
 allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/controlplane", "src/simulator", "src/diagnostic", "src/mindtrainer", "src/inference_bridge", "src/recipestore", "src/trainplanner", "src/trainscheduler", "src/simple_actio", "src/mindagent", "src/factory", "src/compute"]
+packages = ["src/controlplane", "src/simulator", "src/diagnostic", "src/mindtrainer", "src/inference_bridge", "src/recipestore", "src/trainplanner", "src/trainscheduler", "src/simple_actio", "src/mindagent", "src/factory", "src/compute", "src/actio"]
 
 [tool.ruff]
 line-length = 120
@@ -73,6 +73,9 @@ ignore = [
 "src/mindagent/deployment.py" = ["B023"]
 "tests/test_memory_live.py" = ["B023"]
 "tests/test_realtime_session_resources.py" = ["B023"]
+# 从 Actio-RSI-infra 逐字节移植的合同层:保留上游形态(含个别死导入)以便对照与回移,
+# 详见 docs/merge/porting-map.md A1
+"src/actio/contracts/**" = ["F401"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
