@@ -82,17 +82,21 @@ def test_importing_the_contracts_does_not_pull_any_rise_package_or_heavy_dep(mod
 def test_only_factory_and_mindagent_may_import_actio():
     """双向隔离另一半(P3 起):actio 的消费方按设计只有两个。
 
-    factory 是组合根;mindagent 是演化 infra(方案 §3.1:MindAgent 演化 Actio)。
-    其余包(controlplane/simple_actio/simulator/...)仍不得耦合,保证 actio
-    可整体回移上游。
+    factory 是组合根;mindagent 是演化 infra(方案 §3.1);recipestore 只许
+    actio.contracts(D2 桥做 sealed 数据互通,不碰内部实现)。
+    其余包仍不得耦合,保证 actio 可整体回移上游。
     """
-    allowed = {"factory", "mindagent"}
     offenders: list[str] = []
     for path in SRC.rglob("*.py"):
         if "actio" in path.parts:
             continue
         for name in _imports_of(path):
-            if name.split(".")[0] == "actio" and path.parts[-2] not in allowed:
+            if name.split(".")[0] != "actio":
+                continue
+            if path.parts[-2] == "recipestore":
+                if not name.startswith("actio.contracts"):
+                    offenders.append(f"{path.relative_to(SRC)}:{name} (recipestore 只许 contracts)")
+            elif path.parts[-2] not in {"factory", "mindagent"}:
                 offenders.append(f"{path.relative_to(SRC)}:{name}")
     assert offenders == [], f"actio 的消费方越界: {offenders}"
 
