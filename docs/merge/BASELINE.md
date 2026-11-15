@@ -46,3 +46,10 @@
 1. Rise：与本次 Windows 基线的失败名单做集合对比，不允许新增（`docs/merge/` 下维护对比脚本/清单）。
 2. Actio 移植套件：以本基线的 186 条为准，移植后同套件在 Rise 下全绿（允许 skip 标记差异）。
 3. B0/C1 golden：P3 起以 Actio 仓当前输出为 golden file。
+
+## 5. 阶段门禁记录
+
+| 阶段 | 日期 | 结果 | 对比 |
+|---|---|---|---|
+| P0 | 2026-11-15 | 基线建立 | Rise 4864P/189F/130S/12E;Actio 186T/9F/6E/2S |
+| P1 | 2026-11-15 | **通过** | Rise 4914P/188F/130S/12E(+49 契约/边界测试);新增失败 0(docs/merge/compare_failures.py);消失 1 条为已知易抖的 test_repo_lock 文件锁用例 |
