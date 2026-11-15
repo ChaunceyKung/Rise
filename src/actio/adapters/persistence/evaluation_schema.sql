@@ -1,0 +1,16 @@
+CREATE TABLE evaluation(id TEXT PRIMARY KEY, body TEXT NOT NULL);
+CREATE TABLE evaluation_binding(evaluation TEXT NOT NULL REFERENCES evaluation(id), candidate TEXT NOT NULL REFERENCES candidate(id), role TEXT NOT NULL CHECK(role IN ('baseline','candidate')), body TEXT NOT NULL, PRIMARY KEY(evaluation,candidate), UNIQUE(evaluation,role));
+CREATE TABLE evaluation_event(seq INTEGER PRIMARY KEY, evaluation TEXT NOT NULL REFERENCES evaluation(id), state TEXT NOT NULL, body TEXT NOT NULL);
+CREATE TABLE evaluation_decision(evaluation TEXT NOT NULL, candidate TEXT NOT NULL, body TEXT NOT NULL, PRIMARY KEY(evaluation,candidate), FOREIGN KEY(evaluation,candidate) REFERENCES evaluation_binding(evaluation,candidate));
+CREATE TABLE evaluation_migration(id INTEGER PRIMARY KEY CHECK(id=1), body TEXT NOT NULL);
+CREATE TRIGGER evaluation_no_update BEFORE UPDATE ON evaluation BEGIN SELECT RAISE(ABORT,'immutable evaluation'); END;
+CREATE TRIGGER evaluation_no_delete BEFORE DELETE ON evaluation BEGIN SELECT RAISE(ABORT,'immutable evaluation'); END;
+CREATE TRIGGER eval_binding_no_update BEFORE UPDATE ON evaluation_binding BEGIN SELECT RAISE(ABORT,'immutable evaluation binding'); END;
+CREATE TRIGGER eval_binding_no_delete BEFORE DELETE ON evaluation_binding BEGIN SELECT RAISE(ABORT,'immutable evaluation binding'); END;
+CREATE TRIGGER eval_event_no_update BEFORE UPDATE ON evaluation_event BEGIN SELECT RAISE(ABORT,'immutable evaluation event'); END;
+CREATE TRIGGER eval_event_no_delete BEFORE DELETE ON evaluation_event BEGIN SELECT RAISE(ABORT,'immutable evaluation event'); END;
+CREATE TRIGGER eval_decision_no_update BEFORE UPDATE ON evaluation_decision BEGIN SELECT RAISE(ABORT,'immutable evaluation decision'); END;
+CREATE TRIGGER eval_decision_no_delete BEFORE DELETE ON evaluation_decision BEGIN SELECT RAISE(ABORT,'immutable evaluation decision'); END;
+CREATE TRIGGER eval_migration_no_update BEFORE UPDATE ON evaluation_migration BEGIN SELECT RAISE(ABORT,'immutable migration'); END;
+CREATE TRIGGER eval_migration_no_delete BEFORE DELETE ON evaluation_migration BEGIN SELECT RAISE(ABORT,'immutable migration'); END;
+PRAGMA user_version=4;

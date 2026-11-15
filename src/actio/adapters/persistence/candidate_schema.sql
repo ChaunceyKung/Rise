@@ -1,0 +1,16 @@
+CREATE TABLE candidate(id TEXT PRIMARY KEY, proposal TEXT NOT NULL, validation TEXT NOT NULL, scaffold_hash TEXT NOT NULL);
+CREATE TABLE candidate_event(seq INTEGER PRIMARY KEY, candidate TEXT NOT NULL REFERENCES candidate(id), state TEXT NOT NULL, policy_hash TEXT NOT NULL, body TEXT NOT NULL);
+CREATE TABLE lineage_edge(child TEXT PRIMARY KEY REFERENCES candidate(id), parent TEXT NOT NULL REFERENCES candidate(id), CHECK(child != parent));
+CREATE TABLE campaign_binding(candidate TEXT PRIMARY KEY REFERENCES candidate(id), plan_hash TEXT NOT NULL, body TEXT NOT NULL);
+CREATE TABLE decision(candidate TEXT PRIMARY KEY REFERENCES candidate(id), decision_hash TEXT NOT NULL, body TEXT NOT NULL);
+CREATE TRIGGER candidate_no_update BEFORE UPDATE ON candidate BEGIN SELECT RAISE(ABORT,'immutable candidate'); END;
+CREATE TRIGGER candidate_no_delete BEFORE DELETE ON candidate BEGIN SELECT RAISE(ABORT,'immutable candidate'); END;
+CREATE TRIGGER event_no_update BEFORE UPDATE ON candidate_event BEGIN SELECT RAISE(ABORT,'immutable event'); END;
+CREATE TRIGGER event_no_delete BEFORE DELETE ON candidate_event BEGIN SELECT RAISE(ABORT,'immutable event'); END;
+CREATE TRIGGER edge_no_update BEFORE UPDATE ON lineage_edge BEGIN SELECT RAISE(ABORT,'immutable edge'); END;
+CREATE TRIGGER edge_no_delete BEFORE DELETE ON lineage_edge BEGIN SELECT RAISE(ABORT,'immutable edge'); END;
+CREATE TRIGGER binding_no_update BEFORE UPDATE ON campaign_binding BEGIN SELECT RAISE(ABORT,'immutable binding'); END;
+CREATE TRIGGER binding_no_delete BEFORE DELETE ON campaign_binding BEGIN SELECT RAISE(ABORT,'immutable binding'); END;
+CREATE TRIGGER decision_no_update BEFORE UPDATE ON decision BEGIN SELECT RAISE(ABORT,'immutable decision'); END;
+CREATE TRIGGER decision_no_delete BEFORE DELETE ON decision BEGIN SELECT RAISE(ABORT,'immutable decision'); END;
+PRAGMA user_version=3;
