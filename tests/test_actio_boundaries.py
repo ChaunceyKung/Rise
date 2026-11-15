@@ -79,20 +79,22 @@ def test_importing_the_contracts_does_not_pull_any_rise_package_or_heavy_dep(mod
     assert out.stdout.strip() == "[]", f"{module} 拉进了 {out.stdout.strip()}"
 
 
-def test_no_existing_rise_package_imports_actio_yet():
-    """P1 阶段的双向隔离另一半:Rise 现有包不许 import actio。
+def test_only_factory_and_mindagent_may_import_actio():
+    """双向隔离另一半(P3 起):actio 的消费方按设计只有两个。
 
-    P2 把 dsh backend 接进 factory 时,这条会按方案改成"只许 factory 导入";
-    在此之前它防止任何提前耦合。
+    factory 是组合根;mindagent 是演化 infra(方案 §3.1:MindAgent 演化 Actio)。
+    其余包(controlplane/simple_actio/simulator/...)仍不得耦合,保证 actio
+    可整体回移上游。
     """
+    allowed = {"factory", "mindagent"}
     offenders: list[str] = []
     for path in SRC.rglob("*.py"):
         if "actio" in path.parts:
             continue
         for name in _imports_of(path):
-            if name.split(".")[0] == "actio":
+            if name.split(".")[0] == "actio" and path.parts[-2] not in allowed:
                 offenders.append(f"{path.relative_to(SRC)}:{name}")
-    assert offenders == [], f"P1 尚不允许导入 actio: {offenders}"
+    assert offenders == [], f"actio 的消费方越界: {offenders}"
 
 
 def test_the_actio_tree_does_not_import_any_rise_package():
