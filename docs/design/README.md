@@ -19,6 +19,7 @@
 | 诊断评测怎么打分、怎么判退化、怎么防污染 | `21-diagnostic-evaluation.md` |
 | 训练怎么跑、奖励怎么算、怎么续训 | `30-mindtrainer.md` |
 | 技能、记忆、激活轨迹 | `40-simple-actio.md` |
+| Actio 正式件(合同/harness/权威面/谱系)合并后的形态与两包共存 | `45-actio-formal.md` |
 | 部署态智能体怎么自进化 | `50-mindagent.md` |
 | 策略经验怎么沉淀、怎么注入下一轮规划 | `55-strategy-experience.md` |
 | 配方怎么校验、检索、记战绩 | `60-recipestore.md` |

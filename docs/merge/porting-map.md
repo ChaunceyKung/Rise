@@ -71,3 +71,16 @@
 | GatewayRuntime 消费(演化步骤用) | P4 接 | P3 只留 V2 接缝(plan_from_switches 拒绝 gateway 并注明) |
 
 边界开闸记录:actio 消费方 = {factory, mindagent}(test_actio_boundaries 强制)。
+
+## P5:收尾(2026-11-16)
+
+| 项 | 裁定 |
+|---|---|
+| 命名(Q1) | **两包共存,不改名**:`actio`=正式件(上游路径),`simple_actio`=原生运行时;互补关系见 docs/design/45-actio-formal.md §1 |
+| CLI(D8) | 不新增命令:上游 CLI 属 episode 编排域(未移植);Rise 消费全部程序化(evolution/bridge 三入口) |
+| SOURCE 缺陷 | **已在源仓修复**(`SOURCE = history_path('candidate_database')`,未配置时 Skip;commit 665006b)并推送;Rise 不移植 runtime 测试 |
+| 设计文档 | 新增 docs/design/45-actio-formal.md 并入索引 |
+| 移植总账 | P1 合同 8 文件 → P2 store-free 闭包+harness 新组合 → P3 演化接线+D1 桥 → P4 权威面+envelope 桥;未迁项=episode 编排域(wiring/RuntimePort/TransportPort 主体/CLI)、environment(A18)、CAS 消费方接线(P6a) |
+
+**合并完成判定**:P0–P5 六道门禁全绿(每阶段与 Windows 基线集合对比,新增失败均为 0);
+actio 相关测试 84 条;跨仓 golden(canonical/digest/seal/B0/C1/POLICY)两仓一致。
