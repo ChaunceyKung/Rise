@@ -16,6 +16,11 @@ class PerceivedObservation:
     utterance: str
     visible_facts: dict
     hidden_count: int  # 被剥离的不可观察字段数,只计数不留内容
+    # 形式字段(V4 A1,三层规划 §10):默认值保旧构造零破坏
+    actor_id: str = ""
+    episode_id: str = ""
+    turn_id: int = -1
+    task_context: dict = None
 
     def __post_init__(self):
         if not isinstance(self.speaker, str) or not self.speaker:
@@ -23,10 +28,17 @@ class PerceivedObservation:
         if not isinstance(self.utterance, str):
             raise ValueError("utterance 必须是字符串")
         _check(self.visible_facts)
+        if self.task_context is None:
+            object.__setattr__(self, "task_context", {})
+        else:
+            _check(self.task_context)
+            object.__setattr__(self, "task_context", dict(self.task_context))
         object.__setattr__(self, "visible_facts", dict(self.visible_facts))
 
     @classmethod
-    def from_world(cls, raw: dict, visible: frozenset[str] | set[str], *, speaker: str, utterance: str) -> "PerceivedObservation":
+    def from_world(cls, raw: dict, visible: frozenset[str] | set[str], *, speaker: str, utterance: str,
+                   actor_id: str = "", episode_id: str = "", turn_id: int = -1,
+                   task_context: dict | None = None) -> "PerceivedObservation":
         """raw 是模拟器的客观状态;visible 是该角色被允许看到的键集合。"""
         if not isinstance(raw, dict):
             raise ValueError("世界状态必须是字典")
@@ -35,9 +47,20 @@ class PerceivedObservation:
             raise ValueError(f"可见键在世界状态中不存在: {sorted(unknown)}")
         kept = {k: raw[k] for k in sorted(visible)}
         return cls(speaker=speaker, utterance=utterance, visible_facts=kept,
-                   hidden_count=len(raw) - len(kept))
+                   hidden_count=len(raw) - len(kept), actor_id=actor_id or speaker,
+                   episode_id=episode_id, turn_id=turn_id, task_context=task_context or {})
+
+    def to_wire(self) -> dict:
+        return {"speaker": self.speaker, "utterance": self.utterance,
+                "visible_facts": dict(self.visible_facts), "hidden_count": self.hidden_count,
+                "actor_id": self.actor_id, "episode_id": self.episode_id,
+                "turn_id": self.turn_id, "task_context": dict(self.task_context)}
 
     def fact(self, key: str):
         if key not in self.visible_facts:
             raise KeyError(f"不可观察字段被拒绝访问: {key}")
         return self.visible_facts[key]
+
+
+# 词汇对齐(V4 A1):Observation 为正名;PerceivedObservation 别名保留
+Observation = PerceivedObservation

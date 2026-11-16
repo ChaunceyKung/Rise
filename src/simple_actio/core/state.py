@@ -41,7 +41,7 @@ def digest(value: dict) -> str:
 
 
 @dataclass(frozen=True)
-class MindState:
+class CognitiveState:
     """一次交互中的个体心智状态(Inner 的是人物自身状态,Outer 的是对交互对象的估计)。
 
     机制字段按 V3 首批两机制裁剪(Q1):goal+belief;emotion/history 随 M5 需要。
@@ -54,6 +54,10 @@ class MindState:
     uncertainty: tuple[str, ...] = ()  # Outer 专用:估计的不确定项
     last_action: str | None = None
     frozen_extra: dict = field(default_factory=dict)
+    # 三时间尺度(V4 A1,三层规划 §3):默认空,旧构造零破坏
+    long_term: dict = field(default_factory=dict)   # traits/preferences:稳定,显式事件才动
+    mid_term: dict = field(default_factory=dict)    # relationships/plans:随重要事件更新
+    short_term: dict = field(default_factory=dict)  # affect/intention:逐轮可变
 
     def __post_init__(self):
         if not self.subject or not isinstance(self.subject, str):
@@ -63,6 +67,10 @@ class MindState:
             if not isinstance(value, tuple) or not all(isinstance(x, str) and x for x in value):
                 raise ValueError(f"{name} 必须是非空字符串元组")
         _check(self.frozen_extra)
+        for group in ("long_term", "mid_term", "short_term"):
+            value = getattr(self, group)
+            _check(value)
+            object.__setattr__(self, group, dict(value))
         object.__setattr__(self, "frozen_extra", dict(self.frozen_extra))
 
     # ---- 受限 JSON 往返(可 seal 的前提) ----
@@ -73,16 +81,20 @@ class MindState:
             "goals": list(self.goals), "beliefs": list(self.beliefs),
             "uncertainty": list(self.uncertainty), "last_action": self.last_action,
             "extra": self.frozen_extra,
+            "long": self.long_term, "mid": self.mid_term, "short": self.short_term,
         }
 
     @classmethod
     def from_wire(cls, value: dict) -> "MindState":
-        expected = {"subject", "turn", "goals", "beliefs", "uncertainty", "last_action", "extra"}
-        if not isinstance(value, dict) or set(value) != expected:
-            raise ValueError("MindState wire 字段不匹配")
+        core = {"subject", "turn", "goals", "beliefs", "uncertainty", "last_action", "extra"}
+        scales = {"long", "mid", "short"}
+        if not isinstance(value, dict) or not core <= set(value) or not set(value) <= core | scales:
+            raise ValueError("CognitiveState wire 字段不匹配")
         return cls(subject=value["subject"], turn=value["turn"], goals=tuple(value["goals"]),
                    beliefs=tuple(value["beliefs"]), uncertainty=tuple(value["uncertainty"]),
-                   last_action=value["last_action"], frozen_extra=value["extra"])
+                   last_action=value["last_action"], frozen_extra=value["extra"],
+                   long_term=value.get("long", {}), mid_term=value.get("mid", {}),
+                   short_term=value.get("short", {}))
 
     def state_digest(self) -> str:
         return digest(self.to_wire())
@@ -93,7 +105,12 @@ class MindState:
                  dropped_beliefs: tuple[str, ...] = (), last_action: str | None = None) -> "MindState":
         keep = [b for b in self.beliefs if b not in dropped_beliefs]
         merged = keep + [b for b in added_beliefs if b not in keep]
-        return MindState(subject=self.subject, turn=self.turn + turn_delta, goals=self.goals,
-                         beliefs=tuple(merged), uncertainty=self.uncertainty,
-                         last_action=last_action if last_action is not None else self.last_action,
-                         frozen_extra=self.frozen_extra)
+        return CognitiveState(subject=self.subject, turn=self.turn + turn_delta, goals=self.goals,
+                              beliefs=tuple(merged), uncertainty=self.uncertainty,
+                              last_action=last_action if last_action is not None else self.last_action,
+                              frozen_extra=self.frozen_extra, long_term=self.long_term,
+                              mid_term=self.mid_term, short_term=self.short_term)
+
+
+# 词汇对齐(V4 A1):三层规划的 CognitiveState 为正名;M1 的 MindState 为别名保留
+MindState = CognitiveState
