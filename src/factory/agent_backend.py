@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from contextlib import AbstractContextManager, ExitStack, contextmanager
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
 from compute import service as compute_service
 from compute.client import JobSpec
@@ -23,6 +23,7 @@ from compute.tunnel import http_probe, tunnel_factory_for
 from compute.vllm_service import BASE_MODEL_NAME, VllmServeConfig, build_serve_job
 from controlplane.envelope import BigRef
 from factory.opponents import require_timeout
+from factory.model_binding import audit_model_binding
 from factory.vllm_policy import VllmPolicy
 from simple_actio.backend_errors import (
     AgentBackendMalformed, AgentBackendRejected, AgentBackendTimeout, AgentBackendUnavailable,
@@ -73,6 +74,8 @@ class DeploymentService:
     backend_factory: Callable[[str, BigRef | None], object]
     # AgentRuntime(opponent_backend_factory=...);每次调用返回一个新的、绑到基座的后端
     opponent_factory: Callable[[RoleBinding, Scenario], ModelBackend]
+    # M4 绑定审计旁车:backend_factory 每次调用追加一条 model_binding 审计记录
+    audits: list = field(default_factory=list)
 
 
 def make_deployment_service(
@@ -140,22 +143,31 @@ def _open_service(*, client, base_model_path, round_build_job, serve, tunnel_fac
             ))
         except ComputeError as exc:                    # DeferredError 不是 ComputeError 的子类,会原样上抛
             raise SimpleActioDataError(f"deployment service unusable: {type(exc).__name__}") from None
+        backend_factory, audits = _make_agent_backend_factory(handle, agent_timeout)
         yield DeploymentService(
-            backend_factory=_make_agent_backend_factory(handle, agent_timeout),
+            backend_factory=backend_factory,
             opponent_factory=_make_opponent_factory(handle, opponent_timeout),
+            audits=audits,
         )
 
 
 def _make_agent_backend_factory(
     handle: ServiceHandle, timeout_s: float,
-) -> Callable[[str, BigRef | None], object]:
-    """智能体位的后端工厂:忽略 model_id 与 checkpoint_ref,每次返回绑到基座的新后端。
-    外面套转换后端:simple_actio 认不得 factory.opponents 的异常。"""
+) -> tuple[Callable[[str, BigRef | None], object], list]:
+    """智能体位的后端工厂:每次返回绑到基座的新后端,并留绑定审计记录(M4)。
+
+    model_id/checkpoint_ref 仍不参与选权(基座),但声明与实载的出入现在
+    逐次可审计;严格核对用 factory.model_binding.verify_model_binding。"""
+    audits: list = []
 
     def make(model_id: str, checkpoint_ref: BigRef | None) -> object:
+        # M4:声明了晋级权重而部署只挂基座时,先审计后放行(mismatch 由调用方
+        # verify_model_binding 强制;装配层只记录,保旧路径可运行)。
+        audits.append(audit_model_binding(model_id, checkpoint_ref,
+                                          requested_model=BASE_MODEL_NAME))
         return TranslatingAgentBackend(VllmPolicy(handle, BASE_MODEL_NAME, timeout_s=timeout_s))
 
-    return make
+    return make, audits
 
 
 def _make_opponent_factory(
