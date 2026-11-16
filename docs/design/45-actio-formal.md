@@ -1,4 +1,15 @@
-# 45 · Actio 正式件:合并后的形态(P0–P5 记录)
+# Actio 正式件:合并自 Actio-RSI-infra 的 building block 与权威面
+
+| 项 | 内容 |
+|---|---|
+| 一句话 | 把 Actio-RSI-infra 的合同层、DSH 预算制网关、CAS 记忆与 SQLite 权威面并进本仓,作为被演化的正式件 |
+| 状态 | [已落地]:P0–P5 六道门禁全绿,actio 相关 87 个用例;跨仓 golden(canonical/seal/B0/C1/POLICY)两仓一致;episode 编排域(wiring/RuntimePort/TransportPort 主体/CLI)按 docs/merge/porting-map.md 有据未迁 |
+| 所在层 | 共享基础设施 |
+| 代码位置 | `src/actio`(contracts/harness/adapters/profiles/domain/evidence/tasks/measurement/resources);消费面 `src/mindagent/evolution.py`、`src/factory/memory_actio_bridge.py`、`src/recipestore/actio_lineage_bridge.py` |
+| 基线提交 | `b826440`(上游);源仓快照 `ChaunceyKung/Actio-RSI-infra@a718e7f`,合并账在 `docs/merge/` |
+| 依赖 | Python 标准库;DSH 闭包仅在可选 extra `actio`(deepseek-harness-sdk/runtime-bin、mcp),缺省环境可导入、运行时显式报缺 |
+| 被依赖 | MindAgent(演化三元组)、RecipeStore(谱系 envelope 桥,仅经 `actio.contracts`)、factory(D1 记忆桥);消费方白名单由 `tests/test_actio_boundaries.py` 强制 |
+| 对应实施计划 | `docs/merge/plan.md` P1–P5(行动方案);移植逐笔账 `docs/merge/porting-map.md` |
 
 > 状态:[已落地]。本文回答"Actio 合进 Rise 之后,系统长什么样"。
 > 依据:`docs/merge/plan.md`(合并行动方案)、`docs/merge/porting-map.md`(逐笔移植账)、
@@ -18,7 +29,7 @@ P1 计划曾设想"`simple_actio` 改名为 `actio`、SimpleActio 让位正式�
 
 改名不再执行;若未来 upstream 采纳合并,Q1 重新开题。
 
-## 2. 三个消费面(与 §3.1 架构图一致)
+## 2. 三个消费面(与 docs/merge/plan.md 的目标架构图一致)
 
 1. **Actio(被演化对象)**:`actio.harness.GatewayRuntime`——预算制单发/有限发网关
    (冻结 v5 合同:plan∈{compatible,conflict}、每 seat 一生一次 attempt、≤2×plan 次调用)。

@@ -185,6 +185,12 @@ class GatewayRuntime:
         finally:
             ledger.close()
         write_json(self.root / 'active.json', {**self.binding, 'op': op})
+        # 多次发送共用一个 worker:transport.mjs 每次 hook 覆写响应文件;若本次发送
+        # 在写响应前失败,残留的会是上一个 op 的账。发送前显式清掉,保证 _settle
+        # 读到的要么是本 op 的响应、要么没有响应(上游每实例只发一次,无此问题)。
+        stale = self.root / 'transport-response.json'
+        if stale.exists():
+            stale.unlink()
         self.op = op
         complete = False
         result = None

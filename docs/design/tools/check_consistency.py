@@ -21,18 +21,18 @@ ROOT = Path(__file__).resolve().parent.parent
 REPO = ROOT.parent.parent
 BASELINE = "b826440"
 EXPECTED = ["00-overview.md", "10-controlplane.md", "20-socialsimulator.md", "21-diagnostic-evaluation.md",
-            "30-mindtrainer.md", "40-simple-actio.md", "50-mindagent.md", "55-strategy-experience.md",
+            "30-mindtrainer.md", "40-simple-actio.md", "45-actio-formal.md", "50-mindagent.md", "55-strategy-experience.md",
             "60-recipestore.md",
             "70-trainscheduler.md", "71-trainplanner.md", "80-inference-bridge.md", "90-factory-and-cli.md"]
 PREFIX = {"00": "SYS", "10": "CP", "20": "SS", "21": "DX", "30": "MT", "40": "AC", "50": "MA", "55": "SE",
-          "60": "RS", "70": "TS", "71": "TP", "80": "BR", "90": "FC"}
+          "45": "ACF", "60": "RS", "70": "TS", "71": "TP", "80": "BR", "90": "FC"}
 OWN_PKG = {"10": "controlplane", "20": "simulator", "21": "diagnostic", "30": "mindtrainer", "40": "simple_actio",
-           "50": "mindagent", "55": "trainscheduler", "60": "recipestore", "70": "trainscheduler",
+           "45": "actio", "50": "mindagent", "55": "trainscheduler", "60": "recipestore", "70": "trainscheduler",
            "71": "trainplanner", "80": "inference_bridge", "90": "factory"}
 # 每篇头部「状态」行至少要出现哪些标记。九个工作包全部落地后,只有仍然推迟的东西留在
 # 部分落地里;总览把它们归到哪一类,这里就要求出现哪个标记。
 STATUS_REQUIRED = {"10": {"已落地"}, "20": {"已落地"}, "21": {"已落地"}, "30": {"已落地"},
-                   "40": {"已落地"}, "50": {"已落地"}, "55": {"已落地"}, "60": {"已落地"},
+                   "40": {"已落地"}, "45": {"已落地"}, "50": {"已落地"}, "55": {"已落地"}, "60": {"已落地"},
                    "70": {"已落地"}, "71": {"已落地"},
                    "80": {"已落地"}, "90": {"已落地"}}
 # 总览 3.3 的依赖方向表。controlplane 对 simulator 的回指是骨架桩,总览已说明。
@@ -42,9 +42,10 @@ ALLOWED_DEPS = {
     "trainplanner": {"controlplane", "inference_bridge"},
     "trainscheduler": {"controlplane", "recipestore", "trainplanner", "mindtrainer", "inference_bridge"},
     "mindagent": {"controlplane", "simple_actio", "inference_bridge", "simulator"},
+    "actio": set(),
     "inference_bridge": {"controlplane"}, "factory": set(),
 }
-NAME_TO_PKG = {"ControlPlane": "controlplane", "SocialSimulator": "simulator", "MindTrainer": "mindtrainer",
+NAME_TO_PKG = {"ControlPlane": "controlplane", "SocialSimulator": "simulator", "MindTrainer": "mindtrainer", "Actio": "actio",
                "MindAgent": "mindagent", "RecipeStore": "recipestore", "TrainScheduler": "trainscheduler",
                "TrainPlanner": "trainplanner", "SimpleActio": "simple_actio"}
 ALL_PKGS = sorted(set(OWN_PKG.values()))

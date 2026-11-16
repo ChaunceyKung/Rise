@@ -13,6 +13,7 @@
 | `21-diagnostic-evaluation.md` | 诊断评测体系。它是 SocialSimulator 的评测部分,体量大,单独成篇 |
 | `30-mindtrainer.md` | MindTrainer |
 | `40-simple-actio.md` | SimpleActio |
+| `45-actio-formal.md` | Actio 正式件(合并形态) |
 | `50-mindagent.md` | MindAgent |
 | `55-strategy-experience.md` | 策略经验:TrainScheduler 的长期策略记忆 |
 | `60-recipestore.md` | RecipeStore |
