@@ -23,10 +23,11 @@ class ModeAgent:
     """
 
     def __init__(self, instance, policy: CombinedPolicy, *, subject: str,
-                 state_transition=None, dynamics: CognitiveDynamics | None = None):
+                 state_transition=None, dynamics: CognitiveDynamics | None = None,
+                 initial_state: CognitiveState | None = None):
         self._instance = instance
         self.policy = policy
-        self.state = CognitiveState(subject=subject)
+        self.state = initial_state or CognitiveState(subject=subject)
         self._dynamics = dynamics or self._wrap(state_transition) if state_transition else RuleDynamics()
         self.last_trace: CognitiveTrace | None = None
 
