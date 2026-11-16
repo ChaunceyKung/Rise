@@ -63,3 +63,11 @@ P1 计划曾设想"`simple_actio` 改名为 `actio`、SimpleActio 让位正式�
 - `memory` 演化目标与 gateway 提案器:方案 P6a/V2;
 - Windows 环境的 Actio 纪律:`owned_root` 80 字符上限(短根)、`runs` 需短绝对路径
   (源仓已配 `D:/A_t`)。
+
+## 6. 内外模式(V3,施工中)
+
+`refactor/actio-mindagent-v3` 分支按 V3 规划(docs/superpowers/specs/2026-11-16-rise-actio-mindagent-arch-v3.md)
+在 `simple_actio/{core,inner,outer}` 增设双模式层:**只包装、不改动**现有运行时——
+模式经 `GuidedBackend` 装饰器(`adapters/legacy.ModeDirectiveBackend`)注入指导语,
+`respond()/instantiate()` 签名零改动,`src/actio` 基础设施包不参与分层。
+施工分期与验收见 docs/superpowers/plans/2026-11-16-actio-mindagent-v3-construction.md。
