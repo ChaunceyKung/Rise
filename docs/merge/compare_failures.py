@@ -17,7 +17,10 @@ def ids_from_log(path: Path) -> set[str]:
         # 摘要行形如 "FAILED <id>" / "ERROR <id>";有的环境会再附 " - 消息",一并切掉
         for prefix in ("FAILED ", "ERROR "):
             if line.startswith(prefix):
-                out.add(line[len(prefix):].split(" - ")[0].strip())
+                tid = line[len(prefix):].split(" - ")[0].strip()
+                # teardown 错误文本可能无分隔符粘在 id 尾部(session ... join failed)
+                tid = re.sub(r"session sess-[0-9a-f]+ lingering resources join failed: \w+$", "", tid).strip()
+                out.add(tid)
                 break
     return out
 
