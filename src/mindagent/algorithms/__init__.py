@@ -14,3 +14,16 @@ if "manual" not in base._REGISTRY:
     _manual = SingleCandidate()
     _manual.name = "manual"  # 协议属性按实例取,别名即另一实例
     _reg(_manual)
+
+
+def _register_m3() -> None:
+    from mindagent.algorithms.rule_baseline import RuleBaseline
+    from mindagent.algorithms.generate_test import GenerateTest
+
+    if "rule_baseline_v1" not in base._REGISTRY:
+        base._REGISTRY["rule_baseline_v1"] = RuleBaseline  # 需注入 proposer,注册类而非实例
+    if "generate_test_v1" not in base._REGISTRY:
+        base._REGISTRY["generate_test_v1"] = GenerateTest
+
+
+_register_m3()
