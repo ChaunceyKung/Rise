@@ -454,7 +454,16 @@ class FakeOpenAI:
         except OSError:
             return ""
         finally:
-            path.unlink(missing_ok=True)
+            # Windows 上子进程被 kill 后,句柄释放与 unlink 有时序竞态(本机自
+            # 2026-11-16 起稳定复现,父提交 3ced268 同样失败,非分支回归)。
+            # 短重试兜住;删除仍失败就留给系统临时目录,不掩盖原异常信息。
+            for attempt in range(3):
+                try:
+                    path.unlink(missing_ok=True)
+                    break
+                except PermissionError:
+                    if attempt < 2:
+                        time.sleep(0.05 * (attempt + 1))
 
     def _flush_log_to_stderr(self) -> None:
         text = self._take_log()
