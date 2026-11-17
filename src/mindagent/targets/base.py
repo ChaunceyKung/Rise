@@ -14,12 +14,12 @@ from mindagent.errors import MindAgentDataError
 
 @dataclass(frozen=True)
 class Delta:
-    target_kind: str  # 'skill' | 'experience'
+    target_kind: str  # 'skill' | 'experience' | 'policy'
     payload: dict     # 目标对象自校验的完整定义(替换或新增,按 id)
     origin: str       # 生成来源标识(如 'rule_template.v1')
 
     def __post_init__(self):
-        if self.target_kind not in ("skill", "experience"):
+        if self.target_kind not in ("skill", "experience", "policy"):
             raise MindAgentDataError(f"未知演化对象类别 {self.target_kind}")
         if not isinstance(self.payload, dict) or not self.payload:
             raise MindAgentDataError("Delta.payload 必须是非空字典(完整对象定义)")

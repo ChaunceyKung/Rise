@@ -64,10 +64,30 @@ P1 计划曾设想"`simple_actio` 改名为 `actio`、SimpleActio 让位正式�
 - Windows 环境的 Actio 纪律:`owned_root` 80 字符上限(短根)、`runs` 需短绝对路径
   (源仓已配 `D:/A_t`)。
 
-## 6. 内外模式(V3,施工中)
+## 6. 认知架构(三层规划落地,A1–A6 已施工)
 
-`refactor/actio-mindagent-v3` 分支按 V3 规划(docs/superpowers/specs/2026-11-16-rise-actio-mindagent-arch-v3.md)
-在 `simple_actio/{core,inner,outer}` 增设双模式层:**只包装、不改动**现有运行时——
-模式经 `GuidedBackend` 装饰器(`adapters/legacy.ModeDirectiveBackend`)注入指导语,
-`respond()/instantiate()` 签名零改动,`src/actio` 基础设施包不参与分层。
-施工分期与验收见 docs/superpowers/plans/2026-11-16-actio-mindagent-v3-construction.md。
+按 V4 规划(docs/superpowers/plans/2026-11-16-actio-cognitive-architecture.md,
+需求源 specs/ 的 Survey 与三层规划两篇)在 `simple_actio/` 落成:
+
+- **core(数据模型与协议)**:CognitiveState(三时间尺度 long/mid/short,受限 JSON 可
+  seal;MindState 别名)、Observation(可观察边界在构造点+形式字段)、ActionIntent
+  (Shachi 的 tool_call≠action 时间语义)、StepResult(Decision 超集:state_delta+
+  rationale)、CognitiveDynamics+StateDelta(证据链)、CognitiveTrace(旁路 v1,
+  与冻结 trace.v2 分离)、DecisionRecord(引用可回查)、ActioAgent 协议
+  (step/snapshot/restore)与 ActionExecutor(指导语/环境动作双实现)。
+- **cognition**:PersonaSpec(稳定层+CAPS situation_mechanisms 情境权重)、
+  Belief(置信+证据)、Goal(优先级+状态)、affect/relationships(no-op 插件位)。
+- **inner**:state_initializer(persona→状态)、机制(goal/belief)、EventDynamics
+  (一致→目标迁移/冲突→情绪提示)、HumanBehaviorModel(predict)。
+- **outer**:HumanModel(事实/假设/置信/证据四分离)、RuleEstimator(单调封顶、
+  同证据幂等)、ClarificationPolicy+HumanAwareDecisionPolicy(PAHF 澄清最小版)、
+  FeedbackAdapter(漂移检测:矛盾证据显式非单调)。
+- **mindagent/joint(实验框架)**:JointScenario(隐藏真值+漂移)、消融臂
+  B0–B4/O0–O3、值级隔离审计、JointGapEvaluator(Gap 指标)、RunResult 版本化投影。
+- **可演化对象**:targets/{skill,experience,policy}——policy 即 CAPS 机制权重表
+  (三层规划"演化 Skill/Policy/Dynamics"的最后一块);benchmark 留缝
+  (NamedBenchmarkAdapter,不引外部依赖)。
+
+兼容红线全程保持:`respond()/instantiate()` 与 trace.v2 冻结、模式注入经
+ModeDirectiveBackend 缝隙、`src/actio` 上游路径纪律、正式收录走门②。
+施工门禁 A1–A6 逐期"新增失败 0"(docs/merge/BASELINE.md)。

@@ -83,3 +83,22 @@ uv run pytest tests/test_actio_contracts.py tests/test_actio_boundaries.py \
 - 多发送陈旧响应场景(本轮修复项)暂无专门 e2e(需两连发+第二次失败的 stub 编排,留 P6);
 - LEGACY_LINEAGE 锚死的 evaluation 全链导出:历史 fixture 未移植前不可测;
 - episode 编排域(RuntimePort/TransportPort 主体/CLI)未迁,其上游 38 套件中对应部分未移植。
+
+---
+
+## V4 认知架构线增补(3-layer-actio 分支,A1–A6)
+
+| 轮 | 交付 | 测试 |
+|---|---|---|
+| A1 | 六数据模型超集+四抽象(CognitiveState 三尺度/ActionIntent 时间语义/Dynamics+StateDelta/CognitiveTrace/ActioAgent 协议) | test_sa_core_a1(7) |
+| A2 | PersonaSpec(CAPS)/Belief/Goal/初始化/EventDynamics/校准钩子 | test_sa_inner_a2(7) |
+| A3 | HumanModel 四分离/RuleEstimator/澄清-行动双路径/DecisionRecord | test_sa_outer_a3(5) |
+| A4 | HumanBehaviorModel/双执行器/FeedbackAdapter 漂移/affect·relationships 插件位 | test_sa_a4(6) |
+| A5 | joint/{harness,evaluation}:消融 B0–B4/O0–O3、隔离审计、Gap 指标、演化闭环+投影 | test_ma_joint_a5(6) |
+| A6 | targets/policy_target(CAPS 权重可演化)+benchmark 留缝 | test_ma_policy_target(4) |
+
+一键批跑(V4 全量,约 1 分钟):
+```bash
+uv run pytest tests/test_sa_core_a1.py tests/test_sa_inner_a2.py tests/test_sa_outer_a3.py   tests/test_sa_a4.py tests/test_ma_joint_a5.py tests/test_ma_policy_target.py   -q --basetemp=../.pytest-review-v4
+```
+预期 35 passed。
