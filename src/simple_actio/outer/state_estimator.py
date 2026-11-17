@@ -50,7 +50,8 @@ class RuleEstimator:
         old = hypotheses.get(statement)
         if old is None:
             hypotheses[statement] = Hypothesis(statement, base, (ref,))
-        else:
-            confidence = min(self.CAP, old.confidence + self.STEP)  # 单调递增,封顶
-            evidence = old.evidence + (ref,) if ref not in old.evidence else old.evidence
-            hypotheses[statement] = Hypothesis(statement, confidence, evidence)
+            return
+        if ref in old.evidence:
+            return  # 同一 turn 同一文本只算一条证据(decide 与行动后反馈会重复摄入)
+        confidence = min(self.CAP, old.confidence + self.STEP)  # 单调递增,封顶
+        hypotheses[statement] = Hypothesis(statement, confidence, old.evidence + (ref,))
