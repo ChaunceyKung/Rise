@@ -16,10 +16,11 @@ class OuterAgent(ModeAgent):
     mode = "outer"
 
     def __init__(self, *args, estimator: HumanStateEstimator | None = None,
-                 decision=None, person_id: str | None = None, **kwargs):
+                 decision=None, person_id: str | None = None, feedback=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.estimator = estimator
         self.decision = decision
+        self.feedback = feedback
         pid = person_id or (self.state.subject if self.state.subject != "assistant" else "counterpart")
         self.human_model = HumanModel(person_id=pid)
 
@@ -59,3 +60,13 @@ class OuterAgent(ModeAgent):
         return StepResult(mode=self.mode, utterance=utterance, inner_thought=inner_thought,
                           directive=directives, mechanisms=(selected,), trace=trace,
                           state_delta=(delta,), rationale_summary=record.to_wire())
+
+    def observe_feedback(self, feedback_text: str, *, turn: int | None = None):
+        """PAHF 行动后反馈:修正 HumanModel 并回报漂移报告(adapter 未注入时报错)。"""
+        if self.feedback is None:
+            raise RuntimeError("OuterAgent 未注入 feedback adapter")
+        speaker = self.human_model.person_id
+        self.human_model, report = self.feedback.observe(
+            self.human_model, feedback_text, speaker=speaker,
+            turn=self.state.turn if turn is None else turn)
+        return report

@@ -40,8 +40,13 @@ class TaskGoalDriven:
             return None
         instructions = [f"以任务目标为先:{obj}" for obj in self.objectives[:2]]
         if self.advisor is not None:
-            instructions.append(f"对手行为预测(仅参考,决策是你自己的):{self.advisor(observation)[:60]}")
+            instructions.append(f"对手行为预测(仅参考,决策是你自己的):{self._advice(observation)[:60]}")
         return tuple(instructions)
+
+    def _advice(self, observation) -> str:
+        if hasattr(self.advisor, "predict"):  # HumanBehaviorModel 协议
+            return self.advisor.predict(None, observation, horizon=1)[0]
+        return self.advisor(observation)  # 旧 callable 形态
 
 
 @dataclass(frozen=True)
